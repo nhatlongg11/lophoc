@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#183a44">
+  <title>Lớp Học Thông Minh</title>
+  <meta name="description" content="Không gian quản lý lớp học, bài tập và tiến độ học tập bằng tiếng Việt.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark">L</span><span><strong>Lớp Học</strong><small>Thông Minh</small></span></div>
+      <nav class="nav" aria-label="Điều hướng chính">
+        <button class="nav-item active" data-view="dashboard"><span>⌂</span>Tổng quan</button>
+        <button class="nav-item" data-view="classes"><span>▦</span>Lớp học</button>
+        <button class="nav-item" data-view="assignments"><span>✓</span>Bài tập <b>4</b></button>
+        <button class="nav-item" data-view="games"><span>◇</span>Trò chơi</button>
+        <button class="nav-item" data-view="schedule"><span>□</span>Thời khóa biểu</button>
+        <button class="nav-item" data-view="attendance"><span>◎</span>Điểm danh</button>
+        <button class="nav-item" data-view="progress"><span>↗</span>Tiến độ học tập</button>
+        <button class="nav-item" data-view="notifications"><span>◉</span>Thông báo <b>3</b></button>
+        <button class="nav-item" data-view="resources"><span>▱</span>Kho tài liệu</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="nav-item" data-view="admin"><span>⚙</span>Quản trị hệ thống</button>
+        <button class="profile-mini" data-view="profile"><span class="avatar coral">MH</span><span><strong>Minh Hà</strong><small>Giáo viên Toán</small></span><span>⋯</span></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Mở trình đơn">☰</button>
+        <div class="search"><span>⌕</span><input id="globalSearch" placeholder="Tìm học sinh, lớp học, bài tập…" aria-label="Tìm kiếm"><kbd>⌘ K</kbd></div>
+        <div class="top-actions">
+          <button class="school-year">Năm học 2026–2027 <span>⌄</span></button>
+          <button class="icon-btn" data-view="notifications" aria-label="Thông báo">♢<i></i></button>
+          <button class="avatar-button" data-view="profile" aria-label="Hồ sơ Minh Hà">MH</button>
+        </div>
+      </header>
+
+      <section class="view active" id="dashboard">
+        <div class="welcome">
+          <div><p class="eyebrow">THỨ NĂM, 08 THÁNG 10</p><h1>Chào buổi sáng, cô Hà!</h1><p>Hôm nay cô có 4 tiết học và 2 bài tập cần chấm.</p></div>
+          <button class="primary" data-modal="assignmentModal">＋ Tạo bài tập</button>
+        </div>
+
+        <div class="stats-grid">
+          <article class="stat-card mint"><div class="stat-icon">✓</div><div><span>Hoàn thành bài tập</span><strong>87%</strong><small class="up">↑ 6% so với tuần trước</small></div><div class="ring" style="--p:87"><span>87</span></div></article>
+          <article class="stat-card blue"><div class="stat-icon">★</div><div><span>Điểm trung bình</span><strong>8,2</strong><small class="up">↑ 0,4 điểm</small></div><div class="spark"><i></i><i></i><i></i><i></i><i></i></div></article>
+          <article class="stat-card sand"><div class="stat-icon">◷</div><div><span>Chưa nộp bài</span><strong>12</strong><small>trên 124 học sinh</small></div><button class="text-link" data-view="assignments">Xem danh sách →</button></article>
+          <article class="stat-card rose"><div class="stat-icon">!</div><div><span>Cần hỗ trợ</span><strong>5</strong><small>học sinh cần chú ý</small></div><button class="text-link" data-view="progress">Xem chi tiết →</button></article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel today-panel">
+            <div class="panel-head"><div><p class="eyebrow coral-text">LỊCH HÔM NAY</p><h2>Buổi học sắp tới</h2></div><button class="text-link" data-view="schedule">Xem tuần này →</button></div>
+            <div class="timeline">
+              <div class="lesson done"><time>07:00<small>Tiết 1</small></time><i></i><div><span class="subject-tag math">TOÁN 8</span><h3>Phương trình bậc nhất một ẩn</h3><p>Lớp 8A1 · Phòng 203</p></div><span class="status ok">Đã xong</span></div>
+              <div class="lesson current"><time>09:00<small>Tiết 3</small></time><i></i><div><span class="subject-tag math">TOÁN 8</span><h3>Ôn tập chương I</h3><p>Lớp 8A2 · Phòng 205</p></div><button class="small-primary" data-view="attendance">Điểm danh</button></div>
+              <div class="lesson"><time>13:30<small>Tiết 6</small></time><i></i><div><span class="subject-tag stem">STEM</span><h3>Thực hành mô hình cầu</h3><p>Lớp 7A3 · Phòng Lab 2</p></div><span class="status neutral">Sắp tới</span></div>
+              <div class="lesson"><time>15:15<small>Tiết 8</small></time><i></i><div><span class="subject-tag math">TOÁN 9</span><h3>Hệ thức lượng trong tam giác</h3><p>Lớp 9A1 · Phòng 301</p></div><span class="status neutral">Sắp tới</span></div>
+            </div>
+          </article>
+
+          <aside class="right-stack">
+            <article class="panel urgent">
+              <div class="panel-head"><div><p class="eyebrow coral-text">CẦN LÀM HÔM NAY</p><h2>Ưu tiên của cô</h2></div><span class="count">4</span></div>
+              <button class="task-row"><span class="task-check"></span><span><strong>Chấm bài “Phương trình bậc nhất”</strong><small>8A1 · 32/36 bài đã nộp</small></span><em>17:00</em></button>
+              <button class="task-row"><span class="task-check"></span><span><strong>Duyệt điểm danh lớp 8A2</strong><small>Tiết 3 · Hôm nay</small></span><em>09:45</em></button>
+              <button class="task-row"><span class="task-check"></span><span><strong>Phản hồi 3 bài nộp lại</strong><small>Lớp 9A1</small></span><em>Hôm nay</em></button>
+              <button class="task-row"><span class="task-check"></span><span><strong>Chuẩn bị trò chơi ôn tập</strong><small>Lớp 7A3 · Ngày mai</small></span><em>16:30</em></button>
+            </article>
+            <article class="panel class-health">
+              <div class="panel-head"><div><p class="eyebrow">TÌNH HÌNH LỚP</p><h2>Cần cô lưu ý</h2></div><button class="text-link" data-view="progress">Tất cả →</button></div>
+              <div class="student-alert"><span class="avatar yellow">NA</span><div><strong>Nguyễn Ngọc Anh</strong><small>8A2 · Thiếu 3 bài tập</small></div><span class="dot yellow-dot"></span></div>
+              <div class="student-alert"><span class="avatar red">MT</span><div><strong>Trần Minh Tú</strong><small>9A1 · Vắng 2 buổi</small></div><span class="dot red-dot"></span></div>
+              <div class="student-alert"><span class="avatar yellow">HK</span><div><strong>Lê Hoàng Khang</strong><small>8A1 · Điểm giảm gần đây</small></div><span class="dot yellow-dot"></span></div>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="classes">
+        <div class="page-head"><div><p class="eyebrow">KHÔNG GIAN GIẢNG DẠY</p><h1>Lớp học của cô</h1><p>Quản lý học sinh, nội dung và hoạt động theo từng lớp.</p></div><button class="primary" data-toast="Đã mở biểu mẫu tạo lớp mới">＋ Tạo lớp mới</button></div>
+        <div class="class-grid">
+          <article class="class-card teal"><div class="class-cover"><span>TOÁN HỌC</span><b>8A1</b><small>36 học sinh</small></div><div class="class-body"><div><strong>Toán 8 · Đại số</strong><span class="status ok">Đang học</span></div><p>Tiết tiếp theo: Thứ sáu, 07:00</p><div class="avatars"><span>AN</span><span>BT</span><span>DK</span><span>+33</span></div><button data-view="assignments">Mở lớp học →</button></div></article>
+          <article class="class-card coral-cover"><div class="class-cover"><span>TOÁN HỌC</span><b>8A2</b><small>38 học sinh</small></div><div class="class-body"><div><strong>Toán 8 · Đại số</strong><span class="status ok">Đang học</span></div><p>Tiết tiếp theo: Hôm nay, 09:00</p><div class="avatars"><span>NA</span><span>HL</span><span>KT</span><span>+35</span></div><button data-view="attendance">Mở lớp học →</button></div></article>
+          <article class="class-card navy"><div class="class-cover"><span>TOÁN HỌC</span><b>9A1</b><small>35 học sinh</small></div><div class="class-body"><div><strong>Toán 9 · Hình học</strong><span class="status ok">Đang học</span></div><p>Tiết tiếp theo: Hôm nay, 15:15</p><div class="avatars"><span>MT</span><span>QN</span><span>TA</span><span>+32</span></div><button data-view="progress">Mở lớp học →</button></div></article>
+          <article class="class-card gold"><div class="class-cover"><span>DỰ ÁN</span><b>7A3</b><small>34 học sinh</small></div><div class="class-body"><div><strong>STEM · Khám phá</strong><span class="status ok">Đang học</span></div><p>Tiết tiếp theo: Hôm nay, 13:30</p><div class="avatars"><span>HN</span><span>VB</span><span>PN</span><span>+31</span></div><button data-view="games">Mở lớp học →</button></div></article>
+        </div>
+      </section>
+
+      <section class="view" id="assignments">
+        <div class="page-head"><div><p class="eyebrow">NHIỆM VỤ HỌC TẬP</p><h1>Bài tập</h1><p>Tạo, theo dõi và chấm bài tại một nơi.</p></div><button class="primary" data-modal="assignmentModal">＋ Tạo bài tập</button></div>
+        <div class="filters"><button class="active">Tất cả <span>12</span></button><button>Đang giao <span>5</span></button><button>Đã kết thúc <span>7</span></button><select><option>Tất cả lớp</option><option>Lớp 8A1</option><option>Lớp 8A2</option></select></div>
+        <div class="table-card"><table><thead><tr><th>Bài tập</th><th>Lớp</th><th>Hạn nộp</th><th>Tiến độ</th><th>Điểm TB</th><th>Trạng thái</th><th></th></tr></thead><tbody>
+          <tr><td><span class="file-icon">fx</span><div><strong>Phương trình bậc nhất một ẩn</strong><small>Bài tập tự luận · 10 điểm</small></div></td><td>8A1</td><td><strong>17:00 hôm nay</strong><small class="danger-text">Còn 7 giờ</small></td><td><div class="progress-cell"><span style="--w:89%"></span></div><small>32/36 đã nộp</small></td><td>—</td><td><span class="status warning">Đang giao</span></td><td><button class="dots">⋯</button></td></tr>
+          <tr><td><span class="file-icon quiz">?</span><div><strong>Ôn tập chương I</strong><small>Trắc nghiệm · 20 câu</small></div></td><td>8A2</td><td>10/10/2026<small>23:59</small></td><td><div class="progress-cell"><span style="--w:63%"></span></div><small>24/38 đã nộp</small></td><td>8,4</td><td><span class="status warning">Đang giao</span></td><td><button class="dots">⋯</button></td></tr>
+          <tr><td><span class="file-icon">△</span><div><strong>Hệ thức lượng trong tam giác</strong><small>Bài tập tệp · 10 điểm</small></div></td><td>9A1</td><td>12/10/2026<small>20:00</small></td><td><div class="progress-cell"><span style="--w:31%"></span></div><small>11/35 đã nộp</small></td><td>—</td><td><span class="status warning">Đang giao</span></td><td><button class="dots">⋯</button></td></tr>
+          <tr><td><span class="file-icon done-file">✓</span><div><strong>Biểu thức đại số</strong><small>Bài tập tự luận · 10 điểm</small></div></td><td>8A1</td><td>02/10/2026<small>17:00</small></td><td><div class="progress-cell complete"><span style="--w:100%"></span></div><small>36/36 đã nộp</small></td><td>8,1</td><td><span class="status ok">Đã chấm</span></td><td><button class="dots">⋯</button></td></tr>
+        </tbody></table></div>
+      </section>
+
+      <section class="view" id="games">
+        <div class="page-head"><div><p class="eyebrow">HỌC MÀ CHƠI</p><h1>Trò chơi học tập</h1><p>Tạo hoạt động ôn tập thú vị và theo dõi kết quả ngay lập tức.</p></div><button class="primary" id="startQuiz">▶ Chơi thử</button></div>
+        <div class="game-hero"><div><span class="pill">TRÒ CHƠI NỔI BẬT</span><h2>Thử thách Toán học</h2><p>10 câu hỏi · 5 phút · Dành cho lớp 8</p><button class="light-button" id="heroQuiz">Bắt đầu thử thách →</button></div><div class="math-orbit"><span>x²</span><i>+</i><b>π</b><em>√</em></div></div>
+        <div class="section-title"><h2>Thư viện trò chơi</h2><span>6 mẫu có sẵn</span></div>
+        <div class="game-grid"><article><span class="game-icon pink">A?</span><h3>Trắc nghiệm</h3><p>Chọn một đáp án đúng trong nhiều lựa chọn.</p><button data-toast="Đã chọn mẫu Trắc nghiệm">Dùng mẫu này</button></article><article><span class="game-icon green">✓×</span><h3>Đúng hay sai</h3><p>Phản xạ nhanh với những nhận định ngắn.</p><button data-toast="Đã chọn mẫu Đúng hay sai">Dùng mẫu này</button></article><article><span class="game-icon blue">↔</span><h3>Ghép cặp</h3><p>Kết nối khái niệm với nội dung tương ứng.</p><button data-toast="Đã chọn mẫu Ghép cặp">Dùng mẫu này</button></article><article><span class="game-icon gold">123</span><h3>Sắp xếp đáp án</h3><p>Đưa các bước về đúng thứ tự logic.</p><button data-toast="Đã chọn mẫu Sắp xếp">Dùng mẫu này</button></article></div>
+      </section>
+
+      <section class="view" id="schedule">
+        <div class="page-head"><div><p class="eyebrow">08–14 THÁNG 10</p><h1>Thời khóa biểu</h1><p>Lịch dạy, hạn nộp và thay đổi trong tuần.</p></div><div class="head-actions"><button class="secondary">Hôm nay</button><button class="primary" data-toast="Đã mở biểu mẫu thêm tiết học">＋ Thêm tiết học</button></div></div>
+        <div class="calendar panel"><div class="calendar-head"><button>‹</button><strong>Tuần 41 · Tháng 10/2026</strong><button>›</button></div><div class="week-grid"><div class="time-col"><span></span><time>07:00</time><time>09:00</time><time>11:00</time><time>13:30</time><time>15:15</time></div><div class="day"><b>THỨ HAI<small>05</small></b><article class="cal-event teal-event" style="grid-row:2"><strong>Toán 8A1</strong><small>Phòng 203</small></article><article class="cal-event navy-event" style="grid-row:4"><strong>Toán 9A1</strong><small>Phòng 301</small></article></div><div class="day"><b>THỨ BA<small>06</small></b><article class="cal-event coral-event" style="grid-row:3"><strong>Toán 8A2</strong><small>Phòng 205</small></article></div><div class="day"><b>THỨ TƯ<small>07</small></b><article class="cal-event teal-event" style="grid-row:2"><strong>Toán 8A1</strong><small>Phòng 203</small></article><article class="cal-event gold-event" style="grid-row:5"><strong>STEM 7A3</strong><small>Lab 2</small></article></div><div class="day active-day"><b>HÔM NAY<small>08</small></b><article class="cal-event teal-event done-event" style="grid-row:2"><strong>Toán 8A1</strong><small>Đã hoàn thành</small></article><article class="cal-event coral-event" style="grid-row:3"><strong>Toán 8A2</strong><small>Phòng 205</small></article><article class="cal-event gold-event" style="grid-row:5"><strong>STEM 7A3</strong><small>Lab 2</small></article><article class="cal-event navy-event" style="grid-row:6"><strong>Toán 9A1</strong><small>Phòng 301</small></article></div><div class="day"><b>THỨ SÁU<small>09</small></b><article class="cal-event teal-event" style="grid-row:2"><strong>Toán 8A1</strong><small>Phòng 203</small></article><article class="cal-event coral-event" style="grid-row:4"><strong>Toán 8A2</strong><small>Phòng 205</small></article></div></div></div>
+      </section>
+
+      <section class="view" id="attendance">
+        <div class="page-head"><div><p class="eyebrow">TIẾT 3 · 09:00–09:45</p><h1>Điểm danh lớp 8A2</h1><p>Thứ năm, 08/10/2026 · Phòng 205</p></div><button class="primary" id="saveAttendance">✓ Xác nhận điểm danh</button></div>
+        <div class="attendance-summary"><div><strong id="presentCount">36</strong><span>Có mặt</span></div><div><strong id="lateCount">1</strong><span>Đi muộn</span></div><div><strong id="absentCount">1</strong><span>Vắng mặt</span></div><p>Tất cả học sinh được đánh dấu <b>Có mặt</b> mặc định. Chỉ cần cập nhật trường hợp ngoại lệ.</p></div>
+        <div class="table-card attendance-table"><table><thead><tr><th>Học sinh</th><th>Trạng thái</th><th>Ghi chú</th><th>Cập nhật</th></tr></thead><tbody id="attendanceRows"></tbody></table></div>
+      </section>
+
+      <section class="view" id="progress">
+        <div class="page-head"><div><p class="eyebrow">DỮ LIỆU HỌC TẬP</p><h1>Tiến độ lớp 8A2</h1><p>Các chỉ báo hỗ trợ cô đưa ra quyết định, không thay thế đánh giá chuyên môn.</p></div><button class="secondary" data-toast="Báo cáo PDF đang được chuẩn bị">⇩ Xuất báo cáo</button></div>
+        <div class="stats-grid progress-stats"><article class="metric"><span>Tỷ lệ hoàn thành</span><strong>84%</strong><small class="up">↑ 5% tháng này</small></article><article class="metric"><span>Điểm trung bình</span><strong>8,0</strong><small>trên thang điểm 10</small></article><article class="metric"><span>Tỷ lệ chuyên cần</span><strong>96%</strong><small class="up">Tốt</small></article><article class="metric"><span>Cần hỗ trợ</span><strong>3</strong><small class="danger-text">Cần cô xem xét</small></article></div>
+        <div class="progress-layout"><article class="panel chart-panel"><div class="panel-head"><div><p class="eyebrow">8 TUẦN GẦN NHẤT</p><h2>Điểm trung bình theo thời gian</h2></div><select><option>Tất cả bài tập</option><option>Trắc nghiệm</option></select></div><div class="line-chart"><div class="y-labels"><span>10</span><span>8</span><span>6</span><span>4</span></div><svg viewBox="0 0 700 220" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e76f51" stop-opacity=".28"/><stop offset="1" stop-color="#e76f51" stop-opacity="0"/></linearGradient></defs><path class="gridline" d="M0 20H700M0 80H700M0 140H700M0 200H700"/><path class="area" d="M0 165 L100 130 L200 145 L300 94 L400 110 L500 60 L600 75 L700 38 L700 220 L0 220Z"/><path class="line" d="M0 165 L100 130 L200 145 L300 94 L400 110 L500 60 L600 75 L700 38"/><g class="points"><circle cx="0" cy="165" r="5"/><circle cx="100" cy="130" r="5"/><circle cx="200" cy="145" r="5"/><circle cx="300" cy="94" r="5"/><circle cx="400" cy="110" r="5"/><circle cx="500" cy="60" r="5"/><circle cx="600" cy="75" r="5"/><circle cx="700" cy="38" r="5"/></g></svg><div class="x-labels"><span>Tuần 34</span><span>Tuần 36</span><span>Tuần 38</span><span>Tuần 41</span></div></div></article><article class="panel support-list"><div class="panel-head"><div><p class="eyebrow coral-text">CẦN QUAN TÂM</p><h2>Học sinh cần hỗ trợ</h2></div></div><div class="support-card red-support"><span class="avatar red">MT</span><div><strong>Trần Minh Tú</strong><small>Vắng 2 buổi · Thiếu 2 bài</small></div><b>Ưu tiên</b></div><div class="support-card yellow-support"><span class="avatar yellow">NA</span><div><strong>Nguyễn Ngọc Anh</strong><small>Thiếu 3 bài · Đại số yếu</small></div><b>Theo dõi</b></div><div class="support-card yellow-support"><span class="avatar yellow">HK</span><div><strong>Lê Hoàng Khang</strong><small>Điểm giảm 1,2 trong 3 tuần</small></div><b>Theo dõi</b></div><button class="secondary full">Xem hồ sơ chi tiết</button></article></div>
+      </section>
+
+      <section class="view" id="notifications">
+        <div class="page-head"><div><p class="eyebrow">TRUNG TÂM THÔNG BÁO</p><h1>Thông báo</h1><p>Cập nhật mới nhất từ lớp học và nhà trường.</p></div><button class="secondary" id="markRead">✓ Đánh dấu tất cả đã đọc</button></div>
+        <div class="notification-list panel"><button class="notification unread"><span class="notice-icon">✓</span><div><strong>32 học sinh đã nộp bài</strong><p>Bài “Phương trình bậc nhất một ẩn” · Lớp 8A1</p><small>5 phút trước</small></div><i></i></button><button class="notification unread"><span class="notice-icon coral">!</span><div><strong>Tiết học lớp 9A1 đã đổi phòng</strong><p>Chuyển từ phòng 301 sang phòng 305 lúc 15:15 hôm nay.</p><small>32 phút trước</small></div><i></i></button><button class="notification unread"><span class="notice-icon gold">★</span><div><strong>Ba bài nộp lại đang chờ phản hồi</strong><p>Lớp 9A1 · Hệ thức lượng trong tam giác</p><small>1 giờ trước</small></div><i></i></button><button class="notification"><span class="notice-icon blue">◉</span><div><strong>Điểm danh lớp 8A1 đã được lưu</strong><p>35 có mặt · 1 vắng có phép</p><small>Hôm qua, 08:12</small></div></button></div>
+      </section>
+
+      <section class="view" id="resources">
+        <div class="page-head"><div><p class="eyebrow">TÀI NGUYÊN GIẢNG DẠY</p><h1>Kho tài liệu</h1><p>Lưu trữ và tái sử dụng học liệu cho các lớp.</p></div><button class="primary" data-toast="Chọn tệp để tải lên">↑ Tải tài liệu lên</button></div>
+        <div class="folder-grid"><article><span>▱</span><div><strong>Toán lớp 8</strong><small>24 tài liệu</small></div></article><article><span>▱</span><div><strong>Toán lớp 9</strong><small>18 tài liệu</small></div></article><article><span>▱</span><div><strong>Hoạt động STEM</strong><small>12 tài liệu</small></div></article><article><span>▱</span><div><strong>Mẫu dùng chung</strong><small>8 tài liệu</small></div></article></div>
+        <div class="table-card"><table><thead><tr><th>Tên tài liệu</th><th>Loại</th><th>Cập nhật</th><th>Kích thước</th><th></th></tr></thead><tbody><tr><td><span class="file-icon pdf">PDF</span><strong>Phiếu ôn tập chương I</strong></td><td>Tài liệu học tập</td><td>08/10/2026</td><td>2,4 MB</td><td><button class="dots">⋯</button></td></tr><tr><td><span class="file-icon ppt">PPT</span><strong>Bài giảng phương trình bậc nhất</strong></td><td>Bài giảng</td><td>06/10/2026</td><td>8,1 MB</td><td><button class="dots">⋯</button></td></tr><tr><td><span class="file-icon">DOC</span><strong>Rubric chấm dự án STEM</strong></td><td>Tiêu chí chấm</td><td>01/10/2026</td><td>124 KB</td><td><button class="dots">⋯</button></td></tr></tbody></table></div>
+      </section>
+
+      <section class="view" id="admin">
+        <div class="page-head"><div><p class="eyebrow">CẤU HÌNH VÀ BẢO MẬT</p><h1>Quản trị hệ thống</h1><p>Quản lý người dùng, phân quyền, năm học và nhật ký hoạt động.</p></div><span class="role-badge">Quyền giáo viên</span></div>
+        <div class="admin-grid"><article><span>♙</span><h3>Tài khoản người dùng</h3><p>Quản lý giáo viên, học sinh và trạng thái tài khoản.</p><button data-toast="Bạn cần quyền quản trị viên để tiếp tục">Mở quản lý →</button></article><article><span>⌘</span><h3>Vai trò & phân quyền</h3><p>Thiết lập quyền truy cập theo từng vai trò.</p><button data-toast="Bạn cần quyền quản trị viên để tiếp tục">Mở quản lý →</button></article><article><span>▦</span><h3>Năm học & học kỳ</h3><p>Cấu hình 2026–2027 và các mốc thời gian.</p><button data-toast="Bạn cần quyền quản trị viên để tiếp tục">Mở cấu hình →</button></article><article><span>≡</span><h3>Nhật ký hoạt động</h3><p>Theo dõi thay đổi điểm số và điểm danh.</p><button data-toast="Bạn cần quyền quản trị viên để tiếp tục">Xem nhật ký →</button></article></div>
+      </section>
+
+      <section class="view" id="profile">
+        <div class="page-head"><div><p class="eyebrow">TÀI KHOẢN CỦA TÔI</p><h1>Hồ sơ cá nhân</h1><p>Quản lý thông tin và tùy chọn thông báo.</p></div><button class="primary" data-toast="Đã lưu thay đổi hồ sơ">Lưu thay đổi</button></div>
+        <div class="profile-layout"><article class="panel profile-card"><div class="big-avatar">MH</div><h2>Nguyễn Minh Hà</h2><p>Giáo viên Toán · Trường THCS Hòa Bình</p><span class="status ok">Đang hoạt động</span></article><article class="panel form-card"><h2>Thông tin cá nhân</h2><div class="form-grid"><label>Họ và tên<input value="Nguyễn Minh Hà"></label><label>Email<input value="minhha@hoabinh.edu.vn"></label><label>Số điện thoại<input value="0912 345 678"></label><label>Múi giờ<select><option>Việt Nam (GMT+7)</option></select></label></div><hr><h2>Tùy chọn thông báo</h2><label class="toggle-row"><span><strong>Bài nộp mới</strong><small>Thông báo khi học sinh nộp bài</small></span><input type="checkbox" checked><i></i></label><label class="toggle-row"><span><strong>Thay đổi thời khóa biểu</strong><small>Thông báo khi có đổi phòng hoặc đổi tiết</small></span><input type="checkbox" checked><i></i></label><label class="toggle-row"><span><strong>Báo cáo hàng tuần</strong><small>Nhận tóm tắt tiến độ lớp vào thứ hai</small></span><input type="checkbox"><i></i></label></article></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="assignmentModal"><div class="modal"><button class="modal-close" aria-label="Đóng">×</button><p class="eyebrow coral-text">BÀI TẬP MỚI</p><h2>Tạo bài tập</h2><div class="form-grid"><label class="wide">Tên bài tập<input id="assignmentTitle" placeholder="Ví dụ: Ôn tập chương II"></label><label>Lớp học<select><option>Lớp 8A1</option><option>Lớp 8A2</option><option>Lớp 9A1</option></select></label><label>Hạn nộp<input type="datetime-local" value="2026-10-12T20:00"></label><label class="wide">Hướng dẫn<textarea placeholder="Mô tả yêu cầu và tiêu chí hoàn thành…"></textarea></label><label>Điểm tối đa<input type="number" value="10"></label><label>Hình thức nộp<select><option>Tải tệp lên</option><option>Nhập câu trả lời</option><option>Trò chơi trắc nghiệm</option></select></label></div><div class="upload-zone">↑<strong>Kéo tệp vào đây hoặc chọn từ máy</strong><small>PDF, Word, PowerPoint, ảnh hoặc video · Tối đa 50 MB</small></div><div class="modal-actions"><button class="secondary modal-close">Hủy</button><button class="secondary" data-toast="Đã lưu bản nháp">Lưu bản nháp</button><button class="primary" id="publishAssignment">Giao bài</button></div></div></div>
+
+  <div class="modal-backdrop" id="quizModal"><div class="modal quiz-modal"><button class="modal-close" aria-label="Đóng">×</button><div class="quiz-top"><span>CÂU <b id="quizNumber">1</b>/3</span><time id="quizTimer">00:30</time></div><div class="quiz-progress"><i id="quizProgress"></i></div><h2 id="quizQuestion">Nghiệm của phương trình 2x + 4 = 10 là bao nhiêu?</h2><div class="answers" id="quizAnswers"></div><button class="primary full" id="nextQuestion" disabled>Tiếp tục</button></div></div>
+  <div class="toast" id="toast"><span>✓</span><p></p></div>
+  <script src="app.js"></script>
+</body>
+</html>
