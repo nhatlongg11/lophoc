@@ -1,0 +1,360 @@
+{
+  "pack": "Kenney Tower Defense (Top-Down)",
+  "license": "CC0-1.0",
+  "sourceUrl": "https://kenney.nl/assets/tower-defense-top-down",
+  "atlas": "kenney-atlas.webp",
+  "sprites": {
+    "grass": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile024.png",
+      "sha256": "6cfe439b1b7410451ba6538d8df2fd4a364ed134b49fe437404cd8b84b944c46",
+      "frame": [
+        0,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        0,
+        0,
+        64,
+        64
+      ]
+    },
+    "path": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile159.png",
+      "sha256": "e9bcf8cca2cb6ce0a7af520d9a731a9e9733fd9b5cb2383502671e708ad02d84",
+      "frame": [
+        64,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        0,
+        0,
+        64,
+        64
+      ]
+    },
+    "pathLeft": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile160.png",
+      "sha256": "55d35532472bc8baff30df7e717aea6af18b4ebec0b7c44077c3f20eefd8eebd",
+      "frame": [
+        128,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        0,
+        0,
+        64,
+        64
+      ]
+    },
+    "pathRight": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile161.png",
+      "sha256": "3906ea5bb2a5d83c501a94eabb506cecec8649e7a14ee2240f1f0c636424fc01",
+      "frame": [
+        192,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        0,
+        0,
+        64,
+        64
+      ]
+    },
+    "tree": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile130.png",
+      "sha256": "fdad58c09e1d08bed3f0282f33f99c30d2a21eb8320deda17bd0ad904d9f6c75",
+      "frame": [
+        256,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        0,
+        0,
+        64,
+        64
+      ]
+    },
+    "bush": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile131.png",
+      "sha256": "930aa36257e3948a74162a69912f0f72cafc571c7c16fc9a62ee52ff3e932c53",
+      "frame": [
+        320,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        16,
+        16,
+        32,
+        32
+      ]
+    },
+    "rock": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile135.png",
+      "sha256": "5ab6f7c146033575b34cae3a7bc58043d1df65292a8aa6c7548c1006b7a4159d",
+      "frame": [
+        384,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        14,
+        15,
+        36,
+        34
+      ]
+    },
+    "towerBase": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile181.png",
+      "sha256": "3aadd75f2e5f37ca53896f37358710b0a74973b72e7387a069c5a175685951e8",
+      "frame": [
+        448,
+        0,
+        64,
+        64
+      ],
+      "contentBounds": [
+        6,
+        6,
+        52,
+        52
+      ]
+    },
+    "archive": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile180.png",
+      "sha256": "477cca9e002b7eaa107f72d8b59a976cfc492df66f64ba41a181e311a17eb4ca",
+      "frame": [
+        0,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        6,
+        6,
+        52,
+        52
+      ]
+    },
+    "tower": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile249.png",
+      "sha256": "0be7e876c56820acbf2187e6211bfdd327d42fb4a7fe2aefff6145747a2aacb0",
+      "frame": [
+        64,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        11,
+        5,
+        42,
+        55
+      ]
+    },
+    "towerUpgrade": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile291.png",
+      "sha256": "937ed10d39ac52ff407538e0be59fe3183e71ae1c4b06411bc76cb3ab555abe0",
+      "frame": [
+        128,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        15,
+        22,
+        47,
+        20
+      ]
+    },
+    "scout": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile245.png",
+      "sha256": "26060431bd2eeabddf383631e4ca854d8361978421501de049ab3dc932b2df1e",
+      "frame": [
+        192,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        20,
+        18,
+        24,
+        28
+      ]
+    },
+    "runner": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile247.png",
+      "sha256": "dc6b3d9212740fac53d847d3d74621a1a9d4af37a55080a809c8ffb7b45361d2",
+      "frame": [
+        256,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        20,
+        18,
+        24,
+        28
+      ]
+    },
+    "armored": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile248.png",
+      "sha256": "c5ae85506a397c8ba88ca1c7d734f32ddfe5a1ebb1cc23133378a663bbda3965",
+      "frame": [
+        320,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        20,
+        18,
+        24,
+        28
+      ]
+    },
+    "boss": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile250.png",
+      "sha256": "93aea1990fcff3b9315711fc175110b2b4ecae32f85912123305646cbc4ff504",
+      "frame": [
+        384,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        10,
+        4,
+        44,
+        57
+      ]
+    },
+    "projectile": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile272.png",
+      "sha256": "b1d9d11c963539d3b05e33a76dddc49572158637ee9ebd94d19181ee348ab1da",
+      "frame": [
+        448,
+        64,
+        64,
+        64
+      ],
+      "contentBounds": [
+        24,
+        24,
+        16,
+        16
+      ]
+    },
+    "heavyProjectile": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile251.png",
+      "sha256": "3384f24f77011f25239500e7ebd61b89a699225a278b5675187bc223fc657ae5",
+      "frame": [
+        0,
+        128,
+        64,
+        64
+      ],
+      "contentBounds": [
+        26,
+        15,
+        13,
+        35
+      ]
+    },
+    "hit": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile295.png",
+      "sha256": "30ae73ebc87e7a8e87f8424ea2198315239dacbbec06f5133d761ea9d189ff15",
+      "frame": [
+        64,
+        128,
+        64,
+        64
+      ],
+      "contentBounds": [
+        24,
+        18,
+        17,
+        28
+      ]
+    },
+    "burst": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile296.png",
+      "sha256": "3cfe1201b20af5c65905e4f15a4059266c2584ab22665f344b2d4520aa386f8e",
+      "frame": [
+        128,
+        128,
+        64,
+        64
+      ],
+      "contentBounds": [
+        21,
+        15,
+        23,
+        34
+      ]
+    },
+    "spark": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile022.png",
+      "sha256": "90d62d313ede3180ba0ceb9ac40462187d6e759394c1ec9892e308e4ba7f1efd",
+      "frame": [
+        192,
+        128,
+        64,
+        64
+      ],
+      "contentBounds": [
+        16,
+        16,
+        32,
+        32
+      ]
+    },
+    "shield": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile019.png",
+      "sha256": "4a042e81680c406dccbeb981a2218754196d79b5787b33a0957a04f01c985bbb",
+      "frame": [
+        256,
+        128,
+        64,
+        64
+      ],
+      "contentBounds": [
+        11,
+        10,
+        42,
+        44
+      ]
+    },
+    "ice": {
+      "source": "kenney_tower-defense-top-down/PNG/Default size/towerDefense_tile020.png",
+      "sha256": "6175514e1076d888809d52c7aa9525df8699139fcde11eea30b3316077c10272",
+      "frame": [
+        320,
+        128,
+        64,
+        64
+      ],
+      "contentBounds": [
+        11,
+        10,
+        46,
+        45
+      ]
+    }
+  }
+}

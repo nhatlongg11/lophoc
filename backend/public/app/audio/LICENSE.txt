@@ -1,0 +1,4 @@
+EduQuest original rising-notes.wav
+Generated from mathematical sine waves by scripts/generate-listening-audio.py.
+Dedicated to the public domain under CC0 1.0.
+https://creativecommons.org/publicdomain/zero/1.0/

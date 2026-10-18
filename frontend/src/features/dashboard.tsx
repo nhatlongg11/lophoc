@@ -1,0 +1,20 @@
+import { Icon } from '../components/Icon'
+import { Button, Empty, ErrorBox, Panel, Skeleton, displayDate, useResource, type User } from '../components/ui'
+import { QuestArt } from '../components/QuestArt'
+import { DashboardInsights } from './reports'
+
+type DashboardData = { classes: number; assignments: number; submissions: number; notifications: number; upcoming_lessons: { id: number; title: string; class_name: string; room?: string; starts_at: string }[]; due_assignments: { id: number; title: string; due_at: string }[] }
+export function LearningDashboard({ user, open }: { user: User; open: (page: string) => void }) {
+  const { data, error, loading } = useResource<DashboardData>('/dashboard')
+  const student = user.role === 'student'
+  const actions: [string, import('../components/Icon').IconName, string][] = student ? [['assignments', 'assignments', 'Bài tập của em'], ['games', 'games', 'Khám phá trò chơi'], ['schedule', 'schedule', 'Xem lịch học'], ['reports', 'reports', 'Tiến bộ của em']] : [['assignments', 'assignments', 'Tạo bài tập'], ['classes', 'classes', 'Quản lý lớp'], ['attendance', 'attendance', 'Điểm danh'], ['games', 'games', 'Tạo vòng chơi'], ['resources', 'resources', 'Thêm học liệu'], ['reports', 'reports', 'Xem báo cáo']]
+  return <>
+    <section className="welcome-banner">
+      <div className="welcome-copy"><span className="role-sticker"><Icon name="sparkle"/>{student ? 'GÓC KHÁM PHÁ CỦA EM' : user.role === 'admin' ? 'KHÔNG GIAN QUẢN TRỊ' : 'MỘT NGÀY DẠY HỌC THẬT VUI'}</span><h1>Chào {student ? 'em' : 'bạn'}, {user.name.split(' ').at(-1)}!</h1><p>{student ? 'Sẵn sàng thêm một chút kiến thức và thật nhiều niềm vui?' : 'Mỗi nỗ lực nhỏ hôm nay, một bước tiến lớn ngày mai.'}</p><Button onClick={() => open(student ? 'games' : 'assignments')}>{student ? <>Cùng khám phá <Icon name="arrow_right"/></> : <>Giao một nhiệm vụ mới <Icon name="arrow_right"/></>}</Button></div>
+      <QuestArt variant={student ? 'planet' : 'book'}/><span className="hero-sticker">HỌC HỎI<br/>MỖI NGÀY!</span>
+    </section><ErrorBox message={error}/>
+    <div className="quick-actions" aria-label="Thao tác nhanh">{actions.map(([page, icon, label]) => <button key={page} onClick={() => open(page)}><span aria-hidden="true"><Icon name={icon}/></span>{label}</button>)}</div>
+    {loading ? <Skeleton/> : <div className="metric-grid"><article className="metric mint"><span aria-hidden="true"><Icon name="classes"/></span><small>Lớp học</small><strong>{data?.classes ?? '—'}</strong></article><article className="metric sky"><span aria-hidden="true"><Icon name="check"/></span><small>Bài tập được giao</small><strong>{data?.assignments ?? '—'}</strong></article><article className="metric peach"><span aria-hidden="true"><Icon name="clock"/></span><small>{student ? 'Bài em đã nộp' : 'Bài đã nhận'}</small><strong>{data?.submissions ?? '—'}</strong></article><article className="metric lemon"><span aria-hidden="true"><Icon name="communication"/></span><small>Thông báo mới</small><strong>{data?.notifications ?? '—'}</strong></article></div>}
+    <div className="two-col"><Panel title="Lịch hẹn với kiến thức" action={<button className="text-link" onClick={() => open('schedule')}>Xem lịch <Icon name="arrow_right"/></button>}>{data?.upcoming_lessons.length ? data.upcoming_lessons.map(l => <div className="list-row" key={l.id}><span className="list-icon"><Icon name="schedule"/></span><div><strong>{l.title}</strong><small>{l.class_name} · Phòng {l.room || 'chưa xếp'}</small></div><time>{displayDate(l.starts_at)}</time></div>) : <Empty>Chưa có tiết học sắp tới.</Empty>}</Panel><Panel title="Nhiệm vụ sắp đến hạn" action={<button className="text-link" onClick={() => open('assignments')}>Xem bài tập <Icon name="arrow_right"/></button>}>{data?.due_assignments.length ? data.due_assignments.map(a => <div className="list-row" key={a.id}><span className="list-icon coral"><Icon name="check"/></span><div><strong>{a.title}</strong><small>Hạn nộp {displayDate(a.due_at)}</small></div><span className="pill warning">Sắp đến hạn</span></div>) : <Empty>Chưa có bài tập sắp hết hạn.</Empty>}</Panel></div><DashboardInsights/>
+  </>
+}

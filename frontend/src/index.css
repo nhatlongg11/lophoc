@@ -1,0 +1,2 @@
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=DM+Serif+Display&display=swap');
+:root{font-family:'Be Vietnam Pro',sans-serif;color:#213238;background:#f6f3ed;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}*{box-sizing:border-box}body{margin:0;min-width:320px}button,input,select,textarea{font:inherit}button{cursor:pointer}h1,h2,h3,p{margin-top:0}button:disabled{opacity:.5;cursor:not-allowed}#root{min-height:100vh}

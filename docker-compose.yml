@@ -1,0 +1,191 @@
+name: eduquest-local
+
+x-php: &php
+  image: ${COMPOSE_PROJECT_NAME:-eduquest-local}-php
+  build:
+    context: .
+    dockerfile: infrastructure/docker/Dockerfile
+    target: app
+  environment:
+    APP_NAME: EduQuest
+    APP_ENV: ${APP_ENV:-local}
+    APP_KEY: ${APP_KEY:?Run scripts/setup-docker.ps1 or set APP_KEY in .env}
+    APP_DEBUG: "false"
+    APP_URL: ${APP_URL:-http://localhost:8080}
+    APP_LOCALE: vi
+    APP_FALLBACK_LOCALE: vi
+    DB_CONNECTION: pgsql
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_DATABASE: eduquest
+    DB_USERNAME: ${APP_DB_USERNAME:-eduquest_app}
+    DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+    SESSION_DRIVER: redis
+    SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-false}
+    CACHE_STORE: redis
+    QUEUE_CONNECTION: redis
+    REDIS_CLIENT: phpredis
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    FILESYSTEM_DISK: s3
+    AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env}
+    AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env}
+    AWS_DEFAULT_REGION: us-east-1
+    AWS_BUCKET: eduquest
+    AWS_ENDPOINT: http://object-storage:8333
+    AWS_USE_PATH_STYLE_ENDPOINT: "true"
+    MAIL_MAILER: smtp
+    MAIL_HOST: ${MAIL_HOST:-mailpit}
+    MAIL_PORT: ${MAIL_PORT:-1025}
+    MAIL_USERNAME: ${MAIL_USERNAME:-}
+    MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+    MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-notifications@example.test}
+    EDUQUEST_EMAIL_NOTIFICATIONS: ${EDUQUEST_EMAIL_NOTIFICATIONS:-false}
+    LOG_CHANNEL: stderr
+    LOG_LEVEL: warning
+  volumes:
+    - app_storage:/var/www/html/storage
+    # Existing attachments marked disk=local remain available in this local stack.
+    - ./backend/storage/app/private:/var/www/html/storage/app/private
+  init: true
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: eduquest
+      POSTGRES_USER: eduquest
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports: ["127.0.0.1:${POSTGRES_PORT:-55432}:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U eduquest -d eduquest"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  db-setup:
+    image: postgres:17-alpine
+    environment:
+      PGHOST: postgres
+      PGDATABASE: eduquest
+      PGUSER: eduquest
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_USERNAME: ${APP_DB_USERNAME:-eduquest_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - ./infrastructure/docker/database-role.sql:/database-role.sql:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if [ "$$APP_DB_USERNAME" = "$$PGUSER" ]; then
+          echo 'APP_DB_USERNAME must differ from the database administrator.' >&2
+          exit 1
+        fi
+        exec psql -X --file=/database-role.sql
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:${REDIS_PORT:-56379}:6379"]
+    volumes: ["redis_data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  object-storage:
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47}
+    command: ["mini", "-dir=/data"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: eduquest
+    ports: ["127.0.0.1:${S3_PORT:-59000}:8333"]
+    volumes: ["object_data:/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && nc -z 127.0.0.1 8333"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-25125}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-58025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *php
+    command: ["php", "artisan", "migrate", "--force", "--no-interaction"]
+    depends_on:
+      db-setup: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: "no"
+
+  app:
+    <<: *php
+    depends_on: &app_dependencies
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      object-storage: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile
+      target: web
+    ports: ["127.0.0.1:${WEB_PORT:-8080}:80"]
+    depends_on:
+      app: { condition: service_healthy, restart: true }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *php
+    command: ["php", "artisan", "queue:work", "--sleep=1", "--tries=3", "--timeout=60", "--max-time=3600", "--no-interaction"]
+    depends_on: *app_dependencies
+    stop_grace_period: 70s
+    restart: unless-stopped
+
+  scheduler:
+    <<: *php
+    command: ["php", "artisan", "schedule:work", "--no-interaction"]
+    depends_on: *app_dependencies
+    stop_grace_period: 70s
+    restart: unless-stopped
+
+# Keep this project name and these volume names to reuse existing PostgreSQL data.
+# Normal shutdown: docker compose down (do not add --volumes).
+volumes:
+  postgres_data:
+  redis_data:
+  object_data:
+  app_storage:
