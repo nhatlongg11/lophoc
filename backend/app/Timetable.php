@@ -28,7 +28,7 @@ class Timetable
             if (! in_array($date->isoWeekday(), $days, true) || in_array($day, $exceptions, true) || $holidays->contains(fn ($h) => $h->starts_on <= $day && $h->ends_on >= $day)) {
                 continue;
             }
-            $rows[] = ['class_id' => $rule->class_id, 'teacher_id' => $rule->teacher_id, 'subject_id' => $rule->subject_id, 'title' => $rule->title, 'room' => $rule->room, 'note' => $rule->note, 'starts_at' => $day.' '.$rule->start_time.':00', 'ends_at' => $day.' '.$rule->end_time.':00', 'status' => 'scheduled', 'occurrence_on' => $day];
+            $rows[] = ['student_ids' => is_array($rule->student_ids) ? $rule->student_ids : (json_decode($rule->student_ids, true) ?: []), 'teacher_id' => $rule->teacher_id, 'subject_id' => $rule->subject_id, 'title' => $rule->title, 'room' => $rule->room, 'note' => $rule->note, 'starts_at' => $day.' '.$rule->start_time.':00', 'ends_at' => $day.' '.$rule->end_time.':00', 'status' => 'scheduled', 'occurrence_on' => $day];
         }
 
         return $rows;
@@ -41,8 +41,13 @@ class Timetable
             $this->lock();
             foreach ($this->access->table('timetable_recurrences')->where('starts_on', '<=', $to->toDateString())->where('ends_on', '>=', $from->toDateString())->get() as $rule) {
                 foreach ($this->projected($rule, $from, $to) as $row) {
-                    $this->access->table('lessons')->insertOrIgnore([...$row, 'recurrence_id' => $rule->id, 'created_at' => now(), 'updated_at' => now()]);
+                    $students = $row['student_ids'];
+                    unset($row['student_ids']);
+                    $inserted = $this->access->table('lessons')->insertOrIgnore([...$row, 'recurrence_id' => $rule->id, 'created_at' => now(), 'updated_at' => now()]);
                     $existing = $this->access->table('lessons')->where('recurrence_id', $rule->id)->where('occurrence_on', $row['occurrence_on'])->first();
+                    if ($inserted && $existing) {
+                        $this->access->setRecipients('lesson_students', 'lesson_id', $existing->id, $students, $existing->teacher_id);
+                    }
                     if ($existing && ! $existing->is_exception && $existing->status === 'cancelled' && ! $this->access->table('attendance_records')->where('lesson_id', $existing->id)->exists()) {
                         $this->access->table('lessons')->where('id', $existing->id)->update([...$row, 'updated_at' => now()]);
                     }
@@ -56,11 +61,12 @@ class Timetable
         if ($data['status'] === 'cancelled') {
             return;
         }
-        $overlap = fn ($row): bool => $row['starts_at'] < $data['ends_at'] && $row['ends_at'] > $data['starts_at'] && ($row['class_id'] === $data['class_id'] || $row['teacher_id'] === $data['teacher_id'] || (! empty($data['room']) && $row['room'] === $data['room']));
+        $overlap = fn ($row): bool => $row['starts_at'] < $data['ends_at'] && $row['ends_at'] > $data['starts_at'] && (! empty(array_intersect($row['student_ids'], $data['student_ids'])) || (int) $row['teacher_id'] === (int) $data['teacher_id'] || (! empty($data['room']) && $row['room'] === $data['room']));
         $existing = $this->access->table('lessons')->where('status', '!=', 'cancelled')->where('starts_at', '<', $data['ends_at'])->where('ends_at', '>', $data['starts_at'])->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))->when($exceptRule, fn ($q) => $q->where(fn ($q) => $q->whereNull('recurrence_id')->orWhere('recurrence_id', '!=', $exceptRule)->orWhere('is_exception', true)))->get();
         foreach ($existing as $lesson) {
+            $lesson->student_ids = $this->access->table('lesson_students')->where('lesson_id', $lesson->id)->pluck('student_id')->all();
             if ($overlap((array) $lesson)) {
-                throw ValidationException::withMessages(['starts_at' => 'Trùng lịch với lớp, giáo viên hoặc phòng học khác.']);
+                throw ValidationException::withMessages(['starts_at' => 'Trùng lịch với học sinh, giáo viên hoặc phòng học khác.']);
             }
         }
         $from = Carbon::parse($data['starts_at'])->startOfDay();
@@ -72,7 +78,7 @@ class Timetable
                     continue;
                 }
                 if ($overlap($row)) {
-                    throw ValidationException::withMessages(['starts_at' => 'Trùng lịch định kỳ với lớp, giáo viên hoặc phòng học khác.']);
+                    throw ValidationException::withMessages(['starts_at' => 'Trùng lịch định kỳ với học sinh, giáo viên hoặc phòng học khác.']);
                 }
             }
         }

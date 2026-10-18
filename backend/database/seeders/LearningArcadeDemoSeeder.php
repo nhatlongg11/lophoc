@@ -18,23 +18,15 @@ class LearningArcadeDemoSeeder extends Seeder
         $this->call(DatabaseSeeder::class);
         DB::transaction(function () {
             $teacher = User::where('organization_id', 1)->where('email', 'giaovien@lophoc.local')->firstOrFail();
-            $year = DB::table('school_years')->where('organization_id', 1)->where('active', true)->first();
-            $math = DB::table('subjects')->where('organization_id', 1)->where('name', 'Toán học')->first();
-            $class = DB::table('school_classes')->where('organization_id', 1)->where('name', '5A · Arcade mẫu')->value('id');
-            if (! $class) {
-                $class = DB::table('school_classes')->insertGetId(['organization_id' => 1, 'teacher_id' => $teacher->id, 'subject_id' => $math->id, 'school_year_id' => $year->id, 'name' => '5A · Arcade mẫu', 'room' => 'Demo', 'created_at' => now(), 'updated_at' => now()]);
-            }
-            foreach ([['hocsinh5@eduquest.local', 'An Nhiên · Mẫu lớp 5'], ['banhoc5@eduquest.local', 'Minh Khoa · Mẫu lớp 5']] as [$email, $name]) {
+            foreach ([['hocsinh5@eduquest.local', 'An Nhiên · Mẫu khối 5'], ['banhoc5@eduquest.local', 'Minh Khoa · Mẫu khối 5']] as [$email, $name]) {
                 $student = User::firstOrCreate(['email' => $email], ['organization_id' => 1, 'name' => $name, 'role' => 'student', 'password' => 'MatKhau123!', 'active' => true]);
-                if (! DB::table('class_memberships')->where('student_id', $student->id)->exists()) {
-                    DB::table('class_memberships')->insert(['organization_id' => 1, 'class_id' => $class, 'student_id' => $student->id, 'created_at' => now(), 'updated_at' => now()]);
-                }
+                DB::table('teacher_students')->insertOrIgnore(['organization_id' => 1, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
             }
-            $classIds = DB::table('school_classes')->where('organization_id', 1)->where('teacher_id', $teacher->id)->whereIn('name', ['5A · Arcade mẫu', '8A2'])->pluck('id');
+            $studentIds = DB::table('teacher_students')->where('organization_id', 1)->where('teacher_id', $teacher->id)->pluck('student_id')->all();
             foreach (['Tiếng Anh' => 'My school · Một ngày đến lớp', 'Toán học' => 'Những phép tính quanh em', 'Khoa học' => 'Cây xanh và sự sống', 'Tiếng Việt' => 'Câu chữ kể chuyện'] as $name => $title) {
                 $subject = DB::table('subjects')->where('organization_id', 1)->where('name', $name)->first();
-                $content = app(ArcadeContent::class)->validate(['schema_version' => 'arcade-v1', 'title' => '[Mẫu lớp 5] '.$title, 'subject_id' => $subject->id, 'grade' => '5', 'topic' => $name === 'Tiếng Anh' ? 'My school' : $title, 'objectives' => 'Luyện tập nội dung lớp 5 qua các hoạt động ngắn; ôn lại câu sai và ghi nhận tiến bộ.', 'description' => 'Nội dung minh họa phát triển, do EduQuest biên soạn. Không tính vào điểm học bạ.', 'linear' => true, 'completion_accuracy' => 50, 'stars' => [50, 75, 90], 'rewards' => ['activity' => 10, 'accuracy' => 10, 'round' => 20, 'mastery' => 10], 'activities' => ArcadeTemplates::activities($name)]);
-                $round = DB::table('arcade_rounds')->where('organization_id', 1)->where('teacher_id', $teacher->id)->where('title', $content['title'])->first();
+                $content = app(ArcadeContent::class)->validate(['schema_version' => 'arcade-v1', 'title' => '[Mẫu khối 5] '.$title, 'subject_id' => $subject->id, 'grade' => '5', 'topic' => $name === 'Tiếng Anh' ? 'My school' : $title, 'objectives' => 'Luyện tập nội dung khối 5 qua các hoạt động ngắn; ôn lại câu sai và ghi nhận tiến bộ.', 'description' => 'Nội dung minh họa phát triển, do EduQuest biên soạn. Không tính vào điểm học bạ.', 'linear' => true, 'completion_accuracy' => 50, 'stars' => [50, 75, 90], 'rewards' => ['activity' => 10, 'accuracy' => 10, 'round' => 20, 'mastery' => 10], 'activities' => ArcadeTemplates::activities($name)]);
+                $round = DB::table('arcade_rounds')->where('organization_id', 1)->where('teacher_id', $teacher->id)->whereIn('title', [$content['title'], str_replace('[Mẫu khối 5]', '[Mẫu lớp 5]', $content['title'])])->first();
                 if (! $round) {
                     $id = DB::table('arcade_rounds')->insertGetId(['organization_id' => 1, 'teacher_id' => $teacher->id, 'subject_id' => $subject->id, 'title' => $content['title'], 'grade' => '5', 'topic' => $content['topic'], 'status' => 'assigned', 'is_demo' => true, 'created_at' => now(), 'updated_at' => now()]);
                     $version = DB::table('arcade_versions')->insertGetId(['organization_id' => 1, 'round_id' => $id, 'author_id' => $teacher->id, 'revision' => 1, 'subject_id' => $subject->id, 'title' => $content['title'], 'grade' => '5', 'topic' => $content['topic'], 'schema_version' => 'arcade-v1', 'content' => json_encode($content, JSON_UNESCAPED_UNICODE), 'created_at' => now(), 'updated_at' => now()]);
@@ -44,16 +36,14 @@ class LearningArcadeDemoSeeder extends Seeder
                     }
                     $round = DB::table('arcade_rounds')->find($id);
                 }
-                foreach ($classIds as $classId) {
-                    if (! DB::table('arcade_assignments')->where('round_id', $round->id)->where('version_id', $round->published_version_id)->where('class_id', $classId)->exists()) {
-                        DB::table('arcade_assignments')->insert(['organization_id' => 1, 'round_id' => $round->id, 'version_id' => $round->published_version_id, 'class_id' => $classId, 'assigned_by' => $teacher->id, 'allowed_attempts' => 20, 'created_at' => now(), 'updated_at' => now()]);
-                    }
+                if (! DB::table('arcade_assignments')->where('round_id', $round->id)->where('version_id', $round->published_version_id)->exists()) {
+                    DB::table('arcade_assignments')->insert(['organization_id' => 1, 'round_id' => $round->id, 'version_id' => $round->published_version_id, 'student_ids' => json_encode($studentIds), 'assigned_by' => $teacher->id, 'allowed_attempts' => 20, 'created_at' => now(), 'updated_at' => now()]);
                 }
             }
             $english = DB::table('subjects')->where('organization_id', 1)->where('name', 'Tiếng Anh')->first();
-            $bank = DB::table('question_banks')->where('organization_id', 1)->where('owner_id', $teacher->id)->where('name', '[Mẫu lớp 5] Nội dung tương thích Arcade')->value('id');
+            $bank = DB::table('question_banks')->where('organization_id', 1)->where('owner_id', $teacher->id)->whereIn('name', ['[Mẫu khối 5] Nội dung tương thích Arcade', '[Mẫu lớp 5] Nội dung tương thích Arcade'])->value('id');
             if (! $bank) {
-                $bank = DB::table('question_banks')->insertGetId(['organization_id' => 1, 'owner_id' => $teacher->id, 'name' => '[Mẫu lớp 5] Nội dung tương thích Arcade', 'subject_id' => $english->id, 'grade' => '5', 'topic' => 'My school', 'difficulty' => 'easy', 'learning_objective' => 'Thực hành từ vựng và cấu trúc câu ở trường học.', 'created_at' => now(), 'updated_at' => now()]);
+                $bank = DB::table('question_banks')->insertGetId(['organization_id' => 1, 'owner_id' => $teacher->id, 'name' => '[Mẫu khối 5] Nội dung tương thích Arcade', 'subject_id' => $english->id, 'grade' => '5', 'topic' => 'My school', 'difficulty' => 'easy', 'learning_objective' => 'Thực hành từ vựng và cấu trúc câu ở trường học.', 'created_at' => now(), 'updated_at' => now()]);
                 $questions = [
                     ['type' => 'matching', 'prompt' => 'Ghép từ vựng học đường.', 'options' => ['left' => ['book', 'pencil', 'classroom', 'teacher'], 'right' => ['quyển sách', 'bút chì', 'lớp học', 'giáo viên']], 'answer' => ['book' => 'quyển sách', 'pencil' => 'bút chì', 'classroom' => 'lớp học', 'teacher' => 'giáo viên']],
                     ['type' => 'ordering', 'prompt' => 'Sắp xếp câu giới thiệu đồ vật.', 'options' => ['my', 'This', 'book.', 'is'], 'answer' => ['This', 'is', 'my', 'book.']],

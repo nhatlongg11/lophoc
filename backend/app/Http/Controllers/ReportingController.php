@@ -15,26 +15,20 @@ class ReportingController extends Controller
     private function aggregate(Request $request): array
     {
         $this->access->requireRole('teacher', 'admin', 'student');
-        $data = $request->validate(['class_id' => ['nullable', 'integer'], 'from' => ['nullable', 'date'], 'to' => ['nullable', 'date', 'after_or_equal:from']]);
-        $ids = $this->access->classIds();
-        if (! empty($data['class_id'])) {
-            $this->access->classAccess((int) $data['class_id']);
-            $ids = [(int) $data['class_id']];
+        $data = $request->validate(['student_id' => ['nullable', 'integer'], 'from' => ['nullable', 'date'], 'to' => ['nullable', 'date', 'after_or_equal:from']]);
+        $members = $this->access->studentIds();
+        if (! empty($data['student_id'])) {
+            abort_unless(in_array((int) $data['student_id'], $members, true), 404);
+            $members = [(int) $data['student_id']];
         }
         $from = isset($data['from']) ? Carbon::parse($data['from'])->startOfDay() : now()->subDays(29)->startOfDay();
         $to = isset($data['to']) ? Carbon::parse($data['to'])->endOfDay() : now()->endOfDay();
         abort_if($from->diffInDays($to) > 366, 422, 'Khoảng thống kê tối đa 366 ngày.');
-        $members = $this->access->table('class_memberships')->whereIn('class_id', $ids)->pluck('student_id')->unique()->all();
-        if ($this->access->user()->role === 'student') {
-            $members = array_intersect($members, [$this->access->user()->id]);
-        }
-        $assignments = $this->access->table('assignments')->where('published', true)->whereIn('id', $this->access->table('assignment_classes')->whereIn('class_id', $ids)->select('assignment_id'))->whereBetween('due_at', [$from, $to])->get();
-        $submitted = $this->access->table('submissions')->whereIn('student_id', $members)->whereIn('assignment_id', $assignments->pluck('id'))->whereNotNull('submitted_at')->get();
-        $expected = 0;
-        foreach ($assignments as $assignment) {
-            $assignedClasses = $this->access->table('assignment_classes')->where('assignment_id', $assignment->id)->pluck('class_id');
-            $expected += $this->access->table('class_memberships')->whereIn('class_id', $assignedClasses)->whereIn('student_id', $members)->distinct()->count('student_id');
-        }
+        $assignments = $this->access->assigned('assignments')->where('published', true)->whereIn('id', $this->access->table('assignment_students')->whereIn('student_id', $members)->select('assignment_id'))->whereBetween('due_at', [$from, $to])->get();
+        $submitted = $this->access->table('submissions')->whereIn('student_id', $members)->whereIn('assignment_id', $assignments->pluck('id'))->whereIn('status', ['submitted', 'graded'])->whereNotNull('submitted_at')->whereExists(function ($query) {
+            $query->selectRaw('1')->from('assignment_students')->whereColumn('assignment_students.organization_id', 'submissions.organization_id')->whereColumn('assignment_students.assignment_id', 'submissions.assignment_id')->whereColumn('assignment_students.student_id', 'submissions.student_id');
+        })->get();
+        $expected = $this->access->table('assignment_students')->whereIn('assignment_id', $assignments->pluck('id'))->whereIn('student_id', $members)->count();
         $scores = [];
         foreach ($submitted as $submission) {
             $assignment = $assignments->firstWhere('id', $submission->assignment_id);
@@ -42,9 +36,9 @@ class ReportingController extends Controller
                 $scores[] = 10 * $submission->score / $assignment->max_score;
             }
         }
-        $lessons = $this->access->table('lessons')->whereIn('class_id', $ids)->where('status', '!=', 'cancelled')->whereBetween('starts_at', [$from, $to])->pluck('id');
+        $lessons = $this->access->assigned('lessons')->where('status', '!=', 'cancelled')->whereBetween('starts_at', [$from, $to])->pluck('id');
         $attendance = $this->access->table('attendance_records')->whereIn('lesson_id', $lessons)->whereIn('student_id', $members)->get();
-        $gameIds = $this->access->table('games')->whereIn('class_id', $ids)->pluck('id');
+        $gameIds = $this->access->assigned('games')->pluck('id');
         $games = $this->access->table('game_attempts')->whereIn('game_id', $gameIds)->whereIn('student_id', $members)->whereBetween('created_at', [$from, $to])->get();
         $totalQuestions = $games->sum('correct_count') + $games->sum('incorrect_count');
         $activity = $games->groupBy(fn ($g) => Carbon::parse($g->created_at)->toDateString())->map(fn ($items, $day) => ['day' => $day, 'attempts' => $items->count(), 'accuracy' => $items->sum('correct_count') + $items->sum('incorrect_count') > 0 ? round(100 * $items->sum('correct_count') / ($items->sum('correct_count') + $items->sum('incorrect_count'))) : null])->sortBy('day')->values();

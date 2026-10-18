@@ -28,8 +28,8 @@ class LearningArcadeTest extends TestCase
         $student = User::factory()->create(['role' => 'student']);
         $year = DB::table('school_years')->insertGetId(['name' => '2026–2027', 'starts_on' => '2026-08-01', 'ends_on' => '2027-05-31', 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Tiếng Anh', 'color' => '#d9eaff', 'created_at' => now(), 'updated_at' => now()]);
-        $class = DB::table('school_classes')->insertGetId(['name' => '5A', 'subject_id' => $subject, 'teacher_id' => $teacher->id, 'school_year_id' => $year, 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id, 'created_at' => now(), 'updated_at' => now()]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         $content = ArcadeTemplates::all()[6]['content'];
         $content['subject_id'] = $subject;
         $content['linear'] = $linear;
@@ -40,9 +40,9 @@ class LearningArcadeTest extends TestCase
         $round = $this->postJson('/api/arcade/rounds', ['content' => $content, 'expected_revision' => 0])->assertCreated()->json('id');
         $this->postJson('/api/arcade/rounds/'.$round.'/preview')->assertOk()->assertJsonPath('is_preview', true);
         $this->postJson('/api/arcade/rounds/'.$round.'/publish')->assertOk();
-        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['class_id' => $class, 'allowed_attempts' => 3])->assertCreated()->json('id');
+        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['student_ids' => [$studentId], 'allowed_attempts' => 3])->assertCreated()->json('id');
 
-        return [$teacher, $student, $class, $round, $assignment, $content];
+        return [$teacher, $student, $studentId, $round, $assignment, $content];
     }
 
     private function act(array $session, array $action, ?string $key = null): array
@@ -215,14 +215,14 @@ class LearningArcadeTest extends TestCase
     public function test_timed_activity_uses_server_deadline_and_enforces_attempt_limit(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-10-15 10:00:00', 'Asia/Ho_Chi_Minh'));
-        [$teacher, $student, $class, $round, , $content] = $this->fixture('quick_challenge');
+        [$teacher, $student, $studentId, $round, , $content] = $this->fixture('quick_challenge');
         $content['activities'][0]['timed'] = true;
         $content['activities'][0]['time_limit_seconds'] = 30;
         $this->withHeaders($this->headers($teacher));
         $this->putJson('/api/arcade/rounds/'.$round, ['content' => $content, 'expected_revision' => 1])->assertOk();
         $this->postJson('/api/arcade/rounds/'.$round.'/preview')->assertOk();
         $this->postJson('/api/arcade/rounds/'.$round.'/publish')->assertOk();
-        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['class_id' => $class, 'allowed_attempts' => 1])->assertCreated()->json('id');
+        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['student_ids' => [$studentId], 'allowed_attempts' => 1])->assertCreated()->json('id');
         $this->withHeaders($this->headers($student));
         $s = $this->postJson('/api/arcade/rounds/'.$round.'/start', ['assignment_id' => $assignment])->assertOk()->json();
         $a = $content['activities'][0];
@@ -237,7 +237,7 @@ class LearningArcadeTest extends TestCase
 
     public function test_mistakes_improvement_reports_and_csv_use_persisted_results(): void
     {
-        [$teacher, $student, $class, $round, $assignment, $content] = $this->fixture('fill_gap');
+        [$teacher, $student, $studentId, $round, $assignment, $content] = $this->fixture('fill_gap');
         $this->withHeaders($this->headers($student));
         $s = $this->postJson('/api/arcade/rounds/'.$round.'/start', ['assignment_id' => $assignment])->assertOk()->json();
         $a = $content['activities'][0];
@@ -250,7 +250,7 @@ class LearningArcadeTest extends TestCase
         $again = $this->postJson('/api/arcade/rounds/'.$round.'/start', ['assignment_id' => $assignment])->assertOk()->json();
         $this->complete($again, $a);
         $this->withHeaders($this->headers($teacher));
-        $report = $this->getJson('/api/arcade/reports?class_id='.$class.'&round_id='.$round)->assertOk()->assertJsonPath('summary.assigned_students', 1)->assertJsonPath('summary.completed_students', 1)->assertJsonPath('students.data.0.improvement', 33.33);
+        $report = $this->getJson('/api/arcade/reports?student_id='.$studentId.'&round_id='.$round)->assertOk()->assertJsonPath('summary.assigned_students', 1)->assertJsonPath('summary.completed_students', 1)->assertJsonPath('students.data.0.improvement', 33.33);
         $this->assertGreaterThan(66.67, $report->json('summary.average_accuracy'));
         $export = $this->get('/api/arcade/reports/export?round_id='.$round)->assertOk();
         $this->assertStringContainsString($student->name, $export->streamedContent());

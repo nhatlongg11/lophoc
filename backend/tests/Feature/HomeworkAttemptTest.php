@@ -23,10 +23,10 @@ class HomeworkAttemptTest extends TestCase
     {
         $year = DB::table('school_years')->insertGetId(['name' => '2026', 'starts_on' => '2026-01-01', 'ends_on' => '2026-12-31']);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Toán']);
-        $class = DB::table('school_classes')->insertGetId(['name' => 'A', 'subject_id' => $subject, 'teacher_id' => $teacher->id, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         $this->withHeaders($this->headers($teacher));
-        $id = $this->postJson('/api/assignments', ['title' => 'Bài kiểm tra', 'instructions' => 'Làm bài', 'max_score' => 10, 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'class_ids' => [$class], 'published' => true])->assertCreated()->json('id');
+        $id = $this->postJson('/api/assignments', ['title' => 'Bài kiểm tra', 'instructions' => 'Làm bài', 'max_score' => 10, 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'student_ids' => [$studentId], 'published' => true])->assertCreated()->json('id');
         $this->putJson('/api/assignments/'.$id.'/questions', ['allowed_attempts' => 2, 'grade_policy' => 'highest', 'questions' => [['type' => 'single', 'prompt' => '2 + 2?', 'options' => ['3', '4'], 'answer' => '4', 'points' => 1], ['type' => 'fill_blank', 'prompt' => 'Viết từ mèo bằng tiếng Anh', 'options' => [], 'answer' => ['cat', 'a cat'], 'points' => 1]]])->assertOk();
 
         return $id;

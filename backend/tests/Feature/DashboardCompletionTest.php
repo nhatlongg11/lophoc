@@ -21,8 +21,8 @@ class DashboardCompletionTest extends TestCase
         $this->freezeTime();
         $teacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        $classId = $this->classFor($teacher, $student);
-        $assignmentId = $this->assignmentFor($teacher, [$classId]);
+        $studentId = $this->recipientFor($teacher, $student);
+        $assignmentId = $this->assignmentFor($teacher, [$studentId]);
 
         $this->assertCompletionCount($student, 0);
         $this->withHeaders($this->headersFor($student))->postJson('/api/assignments/'.$assignmentId.'/submit', ['status' => 'draft', 'answer' => 'Đang làm bài.'])
@@ -60,16 +60,13 @@ class DashboardCompletionTest extends TestCase
         $this->assertCompletionCount($teacher, 1);
     }
 
-    public function test_teacher_counts_each_students_official_submission_once_across_assigned_classes(): void
+    public function test_teacher_counts_each_direct_recipients_official_submission_once(): void
     {
         $this->freezeTime();
         $teacher = User::factory()->create(['role' => 'teacher']);
         $firstStudent = User::factory()->create(['role' => 'student']);
         $secondStudent = User::factory()->create(['role' => 'student']);
-        $firstClass = $this->classFor($teacher, $firstStudent);
-        $secondClass = $this->classFor($teacher, $firstStudent, '8B');
-        DB::table('class_memberships')->insert(['organization_id' => $teacher->organization_id, 'class_id' => $firstClass, 'student_id' => $secondStudent->id]);
-        $assignmentId = $this->assignmentFor($teacher, [$firstClass, $secondClass]);
+        $assignmentId = $this->assignmentFor($teacher, [$firstStudent->id, $secondStudent->id]);
 
         $this->withHeaders($this->headersFor($firstStudent))->postJson('/api/assignments/'.$assignmentId.'/submit', ['status' => 'submitted', 'answer' => 'Bài của học sinh thứ nhất.'])->assertOk();
         $this->assertCompletionCount($teacher, 1);
@@ -88,8 +85,8 @@ class DashboardCompletionTest extends TestCase
         $this->freezeTime();
         $teacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        $classId = $this->classFor($teacher, $student);
-        $assignmentId = $this->assignmentFor($teacher, [$classId]);
+        $studentId = $this->recipientFor($teacher, $student);
+        $assignmentId = $this->assignmentFor($teacher, [$studentId]);
         $this->withHeaders($this->headersFor($student))->postJson('/api/assignments/'.$assignmentId.'/submit', ['status' => 'submitted', 'answer' => 'Bài làm.'])->assertOk();
         DB::table('assignments')->where('id', $assignmentId)->update(['published' => false]);
 
@@ -97,18 +94,18 @@ class DashboardCompletionTest extends TestCase
         $this->assertCompletionCount($teacher, 0, 0);
     }
 
-    public function test_teacher_only_counts_submissions_from_students_in_their_own_classes(): void
+    public function test_teacher_only_counts_submissions_to_their_own_assignments(): void
     {
         $this->freezeTime();
         $teacher = User::factory()->create(['role' => 'teacher']);
         $otherTeacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
         $otherStudent = User::factory()->create(['role' => 'student']);
-        $classId = $this->classFor($teacher, $student);
-        $otherClassId = $this->classFor($otherTeacher, $otherStudent);
-        $assignmentId = $this->assignmentFor($teacher, [$classId]);
-        DB::table('assignment_classes')->insert(['organization_id' => $teacher->organization_id, 'assignment_id' => $assignmentId, 'class_id' => $otherClassId]);
-        $this->withHeaders($this->headersFor($otherStudent))->postJson('/api/assignments/'.$assignmentId.'/submit', ['status' => 'submitted', 'answer' => 'Bài của lớp khác.'])->assertOk();
+        $studentId = $this->recipientFor($teacher, $student);
+        $otherStudentId = $this->recipientFor($otherTeacher, $otherStudent);
+        $assignmentId = $this->assignmentFor($teacher, [$studentId]);
+        $otherAssignmentId = $this->assignmentFor($otherTeacher, [$otherStudentId]);
+        $this->withHeaders($this->headersFor($otherStudent))->postJson('/api/assignments/'.$otherAssignmentId.'/submit', ['status' => 'submitted', 'answer' => 'Bài giao bởi giáo viên khác.'])->assertOk();
 
         $this->assertCompletionCount($teacher, 0);
         $this->assertCompletionCount($otherTeacher, 1);
@@ -121,13 +118,13 @@ class DashboardCompletionTest extends TestCase
         $this->freezeTime();
         $teacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        $classId = $this->classFor($teacher, $student);
-        $this->assignmentFor($teacher, [$classId]);
+        $studentId = $this->recipientFor($teacher, $student);
+        $this->assignmentFor($teacher, [$studentId]);
         $otherOrganization = DB::table('organizations')->insertGetId(['name' => 'Trung tâm khác', 'slug' => 'other-center']);
         $otherTeacher = User::factory()->create(['role' => 'teacher', 'organization_id' => $otherOrganization]);
         $otherStudent = User::factory()->create(['role' => 'student', 'organization_id' => $otherOrganization]);
-        $otherClassId = $this->classFor($otherTeacher, $otherStudent);
-        $otherAssignmentId = $this->assignmentFor($otherTeacher, [$otherClassId]);
+        $otherStudentId = $this->recipientFor($otherTeacher, $otherStudent);
+        $otherAssignmentId = $this->assignmentFor($otherTeacher, [$otherStudentId]);
         $this->withHeaders($this->headersFor($otherStudent))->postJson('/api/assignments/'.$otherAssignmentId.'/submit', ['status' => 'submitted', 'answer' => 'Bài của trung tâm khác.'])->assertOk();
 
         $this->assertCompletionCount($teacher, 0);
@@ -143,20 +140,16 @@ class DashboardCompletionTest extends TestCase
         return ['Authorization' => 'Bearer '.$token];
     }
 
-    private function classFor(User $teacher, User $student, string $name = '8A'): int
+    private function recipientFor(User $teacher, User $student): int
     {
-        $year = DB::table('school_years')->insertGetId(['organization_id' => $teacher->organization_id, 'name' => 'Year '.$teacher->id.' '.$name, 'starts_on' => '2026-01-01', 'ends_on' => '2026-12-31']);
-        $subject = DB::table('subjects')->insertGetId(['organization_id' => $teacher->organization_id, 'name' => 'Toán '.$teacher->id.' '.$name]);
-        $classId = DB::table('school_classes')->insertGetId(['organization_id' => $teacher->organization_id, 'name' => $name, 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['organization_id' => $teacher->organization_id, 'class_id' => $classId, 'student_id' => $student->id]);
+        DB::table('teacher_students')->insertOrIgnore(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
 
-        return $classId;
+        return $student->id;
     }
 
-    /** @param list<int> $classIds */
-    private function assignmentFor(User $teacher, array $classIds): int
+    private function assignmentFor(User $teacher, array $studentIds): int
     {
-        return $this->withHeaders($this->headersFor($teacher))->postJson('/api/assignments', ['title' => 'Bài tập cần hoàn thành', 'instructions' => 'Nộp bài làm chính thức.', 'max_score' => 10, 'starts_at' => now()->subHour()->toDateTimeString(), 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'class_ids' => $classIds, 'published' => true])
+        return $this->withHeaders($this->headersFor($teacher))->postJson('/api/assignments', ['title' => 'Bài tập cần hoàn thành', 'instructions' => 'Nộp bài làm chính thức.', 'max_score' => 10, 'starts_at' => now()->subHour()->toDateTimeString(), 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'student_ids' => $studentIds, 'published' => true])
             ->assertCreated()->json('id');
     }
 

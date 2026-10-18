@@ -30,8 +30,8 @@ class QuestionMediaWorkflowTest extends TestCase
         $outsider = User::factory()->create(['role' => 'student']);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Science']);
         $year = DB::table('school_years')->insertGetId(['name' => '2026', 'starts_on' => '2026-01-01', 'ends_on' => '2027-01-01']);
-        $class = DB::table('school_classes')->insertGetId(['name' => '5A', 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         $this->asUser($teacher);
         $media = $this->post('/api/question-media', ['file' => UploadedFile::fake()->image('cat.png', 64, 64)], ['Accept' => 'application/json'])->assertCreated()->json('id');
         $file = DB::table('attachments')->first();
@@ -51,7 +51,7 @@ class QuestionMediaWorkflowTest extends TestCase
         $round = $this->postJson('/api/arcade/rounds', ['content' => $content, 'expected_revision' => 0])->assertCreated()->json('id');
         $this->postJson('/api/arcade/rounds/'.$round.'/preview')->assertOk();
         $this->postJson('/api/arcade/rounds/'.$round.'/publish')->assertOk();
-        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['class_id' => $class, 'allowed_attempts' => 3])->assertCreated()->json('id');
+        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['student_ids' => [$studentId], 'allowed_attempts' => 3])->assertCreated()->json('id');
         $this->asUser($student);
         $session = $this->postJson('/api/arcade/rounds/'.$round.'/start', ['assignment_id' => $assignment])->assertOk()->json();
         $activity = $generated['activities'][0];
@@ -107,7 +107,7 @@ class QuestionMediaWorkflowTest extends TestCase
         $f = $this->eduFixture();
         $this->eduAs($f['teacher']);
         $media = $this->postJson('/api/question-media', ['file' => UploadedFile::fake()->image('diagram.webp', 64, 64)])->assertCreated()->json('id');
-        $assignment = $this->postJson('/api/assignments', ['title' => 'Diagram', 'instructions' => 'Answer the diagram', 'max_score' => 10, 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'class_ids' => [$f['class']], 'published' => true])->assertCreated()->json('id');
+        $assignment = $this->postJson('/api/assignments', ['title' => 'Diagram', 'instructions' => 'Answer the diagram', 'max_score' => 10, 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'student_ids' => [$f['student']->id], 'published' => true])->assertCreated()->json('id');
         $payload = ['allowed_attempts' => 2, 'grade_policy' => 'highest', 'questions' => [['type' => 'image', 'prompt' => 'Which diagram?', 'options' => ['A', 'B'], 'answer' => 'A', 'points' => 1, 'media' => ['id' => $media, 'alt' => 'Science diagram', 'caption' => 'Observe'], 'choice_media' => ['B' => ['id' => $media, 'alt' => 'Diagram B']]]]];
         $this->putJson('/api/assignments/'.$assignment.'/questions', $payload)->assertOk();
         $this->getJson('/api/assignments/'.$assignment.'/questions')->assertJsonPath('0.choice_media.B.alt', 'Diagram B');

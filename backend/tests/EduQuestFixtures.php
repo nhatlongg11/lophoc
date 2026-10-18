@@ -16,11 +16,11 @@ trait EduQuestFixtures
         $other = User::factory()->create(['role' => 'parent']);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Math']);
         $year = DB::table('school_years')->insertGetId(['name' => '2026', 'starts_on' => '2026-01-01', 'ends_on' => '2027-01-01']);
-        $class = DB::table('school_classes')->insertGetId(['name' => 'A', 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         DB::table('parent_student_links')->insert(['organization_id' => 1, 'parent_id' => $parent->id, 'student_id' => $student->id]);
 
-        return compact('teacher', 'student', 'parent', 'other', 'subject', 'class');
+        return compact('teacher', 'student', 'parent', 'other', 'subject');
     }
 
     protected function eduAs(User $user): void

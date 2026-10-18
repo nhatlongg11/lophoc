@@ -21,6 +21,7 @@ use App\Http\Controllers\TimetableController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [ApiController::class, 'login'])->middleware('throttle:login');
+Route::post('/register', [AccountController::class, 'register'])->middleware('throttle:registration');
 Route::get('/csrf', fn () => response()->json(['token' => csrf_token()]));
 Route::post('/forgot-password', [AccountController::class, 'forgot'])->middleware('throttle:3,1');
 Route::post('/reset-password', [AccountController::class, 'reset'])->middleware('throttle:5,1');
@@ -69,9 +70,8 @@ Route::middleware('api.auth')->group(function () {
 
     Route::get('/reports', [ReportingController::class, 'show']);
     Route::get('/reports/export', [ReportingController::class, 'export']);
-    Route::post('/classes/{id}/import', [EnrollmentController::class, 'import']);
-    Route::get('/classes/{id}/export', [EnrollmentController::class, 'export']);
-    Route::delete('/classes/{id}', [EnrollmentController::class, 'archive']);
+    Route::post('/students/import', [EnrollmentController::class, 'import']);
+    Route::get('/students/export', [EnrollmentController::class, 'export']);
     Route::get('/platform', [OrganizationController::class, 'platform']);
     Route::post('/platform/organizations', [OrganizationController::class, 'createOrganization']);
     Route::post('/platform/organizations/{id}/suspend', [OrganizationController::class, 'suspend']);
@@ -85,7 +85,7 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/library', [LibraryController::class, 'upload']);
     Route::put('/library/{id}', [LibraryController::class, 'update']);
     Route::post('/library/{id}/replace', [LibraryController::class, 'replaceFile'])->middleware('throttle:10,1');
-    Route::get('/file-preview/{id}', [LibraryController::class, 'preview'])->middleware('signed')->name('files.preview');
+    Route::get('/file-preview/{id}', [LibraryController::class, 'preview'])->middleware('signed:relative')->name('files.preview');
     Route::get('/library/{id}/permissions', [LibraryController::class, 'permissions']);
     Route::get('/files/{id}/access', [LibraryController::class, 'accessUrl']);
     Route::get('/file-access/{id}', [ApiController::class, 'downloadAttachment'])->middleware('signed')->name('files.signed');
@@ -125,13 +125,6 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/subjects', [ApiController::class, 'saveSubject']);
     Route::get('/school-years', [ApiController::class, 'schoolYears']);
     Route::post('/school-years', [ApiController::class, 'saveSchoolYear']);
-    Route::get('/classes', [ApiController::class, 'classes']);
-    Route::post('/classes', [ApiController::class, 'saveClass']);
-    Route::put('/classes/{id}', [ApiController::class, 'saveClass']);
-    Route::get('/classes/{id}/students', [ApiController::class, 'classStudents']);
-    Route::post('/classes/{id}/students', [ApiController::class, 'addStudent']);
-    Route::post('/classes/{id}/transfer', [ApiController::class, 'transferStudent']);
-    Route::delete('/classes/{id}/students/{studentId}', [ApiController::class, 'removeStudent']);
     Route::get('/assignments', [ApiController::class, 'assignments']);
     Route::post('/assignments', [ApiController::class, 'saveAssignment']);
     Route::put('/assignments/{id}', [ApiController::class, 'saveAssignment']);

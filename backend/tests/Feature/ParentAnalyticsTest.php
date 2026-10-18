@@ -14,7 +14,7 @@ class ParentAnalyticsTest extends TestCase
     {
         $f = $this->eduFixture();
         $this->eduAs($f['teacher']);
-        $assignment = $this->postJson('/api/assignments', ['title' => 'Fractions', 'instructions' => 'Answer', 'max_score' => 10, 'due_at' => '2026-10-18 18:00:00', 'submission_type' => 'text', 'class_ids' => [$f['class']], 'published' => true])->assertCreated()->json('id');
+        $assignment = $this->postJson('/api/assignments', ['title' => 'Fractions', 'subject_id' => $f['subject'], 'instructions' => 'Answer', 'max_score' => 10, 'due_at' => '2026-10-18 18:00:00', 'submission_type' => 'text', 'student_ids' => [$f['student']->id], 'published' => true])->assertCreated()->json('id');
         $this->putJson('/api/assignments/'.$assignment.'/questions', ['allowed_attempts' => 2, 'grade_policy' => 'highest', 'questions' => [['type' => 'single', 'prompt' => 'Half of 4?', 'options' => ['2', '3'], 'answer' => '2', 'points' => 1]]])->assertOk();
         $this->eduAs($f['student']);
         $attempt = $this->postJson('/api/assignments/'.$assignment.'/start')->assertOk()->json();
@@ -34,6 +34,6 @@ class ParentAnalyticsTest extends TestCase
     {
         $f = $this->eduFixture();
         $this->eduAs($f['parent']);
-        $this->getJson('/api/family/dashboard')->assertOk()->assertJsonPath('children.0.analytics.subjects.0.average_score_percent', null)->assertJsonPath('children.0.analytics.submitted_count', 0)->assertJsonPath('children.0.analytics.activity_history', []);
+        $this->getJson('/api/family/dashboard')->assertOk()->assertJsonPath('children.0.analytics.subjects', [])->assertJsonPath('children.0.analytics.submitted_count', 0)->assertJsonPath('children.0.analytics.activity_history', []);
     }
 }

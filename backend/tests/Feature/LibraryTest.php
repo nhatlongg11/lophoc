@@ -29,14 +29,14 @@ class LibraryTest extends TestCase
         $other = User::factory()->create(['role' => 'student']);
         $year = DB::table('school_years')->insertGetId(['name' => 'Year', 'starts_on' => '2026-01-01', 'ends_on' => '2026-12-31']);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Math']);
-        $class = DB::table('school_classes')->insertGetId(['name' => 'A', 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         $this->withHeaders($this->headers($teacher));
         $id = $this->postJson('/api/library', ['file' => UploadedFile::fake()->create('lesson.pdf', 2, 'application/pdf'), 'folder' => 'Math'])->assertCreated()->json('id');
         $this->withHeaders($this->headers($student));
         $this->getJson('/api/library')->assertOk()->assertExactJson([]);
         $this->get('/api/files/'.$id)->assertNotFound();
-        $this->withHeaders($this->headers($teacher))->putJson('/api/library/'.$id, ['name' => 'Bài học.pdf', 'folder' => 'Math', 'class_ids' => [$class]])->assertOk();
+        $this->withHeaders($this->headers($teacher))->putJson('/api/library/'.$id, ['name' => 'Bài học.pdf', 'folder' => 'Math', 'student_ids' => [$studentId]])->assertOk();
         $this->withHeaders($this->headers($student));
         $this->getJson('/api/library')->assertOk()->assertJsonCount(1);
         $url = $this->getJson('/api/files/'.$id.'/access')->assertOk()->json('url');

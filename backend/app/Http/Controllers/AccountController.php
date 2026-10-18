@@ -12,10 +12,54 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AccountController extends Controller
 {
     public function __construct(private LearningAccess $access) {}
+
+    public function register(Request $request): JsonResponse
+    {
+        if (is_string($request->input('email'))) {
+            $request->merge(['email' => Str::lower(trim($request->input('email')))]);
+        }
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:160'],
+            'email' => ['required', 'email', 'max:254'],
+            'password' => ['required', 'string', 'confirmed', 'min:12', 'max:128'],
+            'role' => ['required', 'string', Rule::in(['student', 'teacher', 'parent'])],
+            'parent_pin' => ['required_if:role,parent', 'nullable', 'digits_between:6,12'],
+            'organization_id' => ['prohibited'],
+            'student_id' => ['prohibited'],
+            'student_ids' => ['prohibited'],
+        ]);
+        $user = DB::transaction(function () use ($data): User {
+            $organization = DB::table('organizations')->where('id', config('eduquest.registration_organization_id'))->lockForUpdate()->first();
+            abort_unless($organization && $organization->subscription_status === 'active', 422, 'Hệ thống hiện chưa nhận đăng ký. Vui lòng thử lại sau.');
+            if (User::whereRaw('LOWER(email) = ?', [$data['email']])->exists()) {
+                throw ValidationException::withMessages(['email' => 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc đặt lại mật khẩu.']);
+            }
+            $role = $data['role'] === 'parent' ? 'family' : $data['role'];
+            if ($role !== 'family') {
+                $limit = $role === 'student' ? $organization->max_students : $organization->max_teachers;
+                abort_if(User::where('organization_id', $organization->id)->where('role', $role)->where('active', true)->count() >= $limit, 422, 'Hệ thống đã đạt giới hạn tài khoản cho vai trò này. Vui lòng liên hệ quản trị viên.');
+            }
+            $user = User::create([
+                'organization_id' => $organization->id,
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'password' => $data['password'],
+                'role' => $role,
+                'active' => true,
+                'parent_pin_hash' => $role === 'family' ? Hash::make($data['parent_pin']) : null,
+            ]);
+            DB::table('audit_logs')->insert(['organization_id' => $organization->id, 'actor_id' => $user->id, 'action' => 'self_registered', 'entity_type' => 'user', 'entity_id' => $user->id, 'created_at' => now(), 'updated_at' => now()]);
+
+            return $user;
+        });
+
+        return response()->json(['message' => 'Đã tạo tài khoản.', 'email' => $user->email], 201);
+    }
 
     public function forgot(Request $request): JsonResponse
     {

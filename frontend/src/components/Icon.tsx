@@ -10,7 +10,7 @@ import {
 } from '@heroicons/react/24/outline'
 
 const icons = {
-  dashboard: HomeIcon, classes: UserGroupIcon, assignments: ClipboardDocumentCheckIcon,
+  dashboard: HomeIcon, students: UserGroupIcon, assignments: ClipboardDocumentCheckIcon,
   games: PuzzlePieceIcon, schedule: CalendarDaysIcon, attendance: CheckBadgeIcon,
   progress: ArrowTrendingUpIcon, communication: ChatBubbleLeftRightIcon, reports: ChartBarIcon,
   banks: QuestionMarkCircleIcon, organization: BuildingOffice2Icon, notifications: BellIcon,

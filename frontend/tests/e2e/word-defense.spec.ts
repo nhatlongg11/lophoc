@@ -20,8 +20,8 @@ async function openBattle(page: Page, student = false, expectAssets = true) {
   let session = await (await page.request.post('/api/arcade/rounds/' + id + '/preview', { headers })).json() as Session
   if (student) {
     expect((await page.request.post('/api/arcade/rounds/' + id + '/publish', { headers })).ok()).toBeTruthy()
-    const classes = await (await page.request.get('/api/classes')).json()
-    const assigned = await page.request.post('/api/arcade/rounds/' + id + '/assign', { headers, data: { class_id: classes.find((c: { name: string }) => c.name === '5A · Arcade mẫu').id, allowed_attempts: 5 } })
+    const students = await (await page.request.get('/api/users?role=student')).json()
+    const assigned = await page.request.post('/api/arcade/rounds/' + id + '/assign', { headers, data: { student_ids: [students.find((s: { email: string }) => s.email === 'hocsinh5@eduquest.local').id], allowed_attempts: 5 } })
     expect(assigned.status()).toBe(201)
     const assignment = (await assigned.json()).id
     expect((await page.request.post('/api/logout', { headers })).ok()).toBeTruthy()

@@ -27,13 +27,13 @@ class CommunicationTest extends TestCase
         $student = User::factory()->create(['role' => 'student']);
         $year = DB::table('school_years')->insertGetId(['name' => 'Year', 'starts_on' => '2026-01-01', 'ends_on' => '2026-12-31']);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Math']);
-        $class = DB::table('school_classes')->insertGetId(['name' => 'A', 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         DB::table('parent_student_links')->insert(['organization_id' => 1, 'parent_id' => $parent->id, 'student_id' => $student->id]);
         $this->withHeaders($this->headers($teacher));
         $this->postJson('/api/messages', ['recipient_id' => $other->id, 'body' => 'Blocked'])->assertNotFound();
         $message = $this->postJson('/api/messages', ['recipient_id' => $parent->id, 'body' => 'Hôm nay con học tốt.'])->assertCreated()->json('id');
-        $this->postJson('/api/announcements', ['class_id' => $class, 'title' => 'Họp lớp', 'body' => 'Thứ sáu'])->assertCreated();
+        $this->postJson('/api/announcements', ['student_ids' => [$studentId], 'title' => 'Họp lớp', 'body' => 'Thứ sáu'])->assertCreated();
         $this->withHeaders($this->headers($parent, true));
         $this->getJson('/api/messages?peer_id='.$teacher->id)->assertOk()->assertJsonCount(1)->assertJsonPath('0.body', 'Hôm nay con học tốt.');
         $this->getJson('/api/announcements')->assertOk()->assertJsonCount(1);

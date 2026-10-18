@@ -22,7 +22,7 @@ class FeatureTenantIsolationTest extends TestCase
         $this->eduAs($f['teacher']);
         $media = $this->postJson('/api/question-media', ['file' => UploadedFile::fake()->image('picture.png', 40, 40)])->assertCreated()->json('id');
         $bank = $this->postJson('/api/question-banks', ['name' => 'Bank', 'subject_id' => $f['subject'], 'difficulty' => 'easy', 'questions' => [['type' => 'single', 'prompt' => 'Question', 'options' => ['A', 'B'], 'answer' => 'A', 'points' => 1]]])->assertCreated()->json('id');
-        $file = $this->postJson('/api/library', ['file' => UploadedFile::fake()->create('exam.pdf', 1, 'application/pdf'), 'class_ids' => [$f['class']]])->assertCreated()->json('id');
+        $file = $this->postJson('/api/library', ['file' => UploadedFile::fake()->create('exam.pdf', 1, 'application/pdf'), 'student_ids' => [$f['student']->id]])->assertCreated()->json('id');
         $content = ArcadeTemplates::all()[0]['content'];
         $content['subject_id'] = $f['subject'];
         $round = $this->postJson('/api/arcade/rounds', ['content' => $content, 'expected_revision' => 0])->assertCreated()->json('id');
@@ -38,9 +38,9 @@ class FeatureTenantIsolationTest extends TestCase
         $this->getJson('/api/library')->assertExactJson([]);
         $this->getJson('/api/timetable/recurrences')->assertExactJson([]);
         $this->getJson('/api/arcade/collections')->assertExactJson([]);
-        $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['class_id' => $f['class'], 'allowed_attempts' => 1])->assertNotFound();
+        $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['student_ids' => [$f['student']->id], 'allowed_attempts' => 1])->assertNotFound();
         $this->getJson('/api/messages?peer_id='.$f['parent']->id.'&student_id='.$f['student']->id)->assertNotFound();
-        $this->getJson('/api/attendance/report?class_id='.$f['class'])->assertNotFound();
+        $this->getJson('/api/attendance/report?student_id='.$f['student']->id)->assertNotFound();
         $this->postJson('/api/question-banks', ['name' => 'Foreign media', 'subject_id' => $subject, 'difficulty' => 'easy', 'questions' => [['type' => 'image', 'prompt' => 'Question', 'options' => ['A', 'B'], 'answer' => 'A', 'points' => 1, 'media' => ['id' => $media, 'alt' => 'Picture']]]])->assertUnprocessable();
         $this->assertDatabaseCount('question_banks', 1);
         $this->assertDatabaseCount('messages', 1);

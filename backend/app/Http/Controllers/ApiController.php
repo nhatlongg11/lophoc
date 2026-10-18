@@ -39,16 +39,6 @@ class ApiController extends Controller
         abort_unless(in_array($this->user()->role, $roles, true), 403, 'Bạn không có quyền thực hiện thao tác này.');
     }
 
-    private function classIds(): array
-    {
-        return $this->access->classIds();
-    }
-
-    private function classAccess(int $id, bool $write = false): object
-    {
-        return $this->access->classAccess($id, $write);
-    }
-
     private function auditChange(string $action, string $entity, int $id, mixed $before, mixed $after): void
     {
         $this->access->audit($action, $entity, $id, $before, $after);
@@ -107,31 +97,20 @@ class ApiController extends Controller
 
     public function dashboard(): JsonResponse
     {
-        $classIds = $this->classIds();
-        $student = $this->user()->role === 'student';
-        $assignments = $this->table('assignments')->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')->whereIn('assignment_classes.class_id', $classIds)->where('published', true)->distinct()->count('assignments.id');
-        $this->timetable->materialize(now()->startOfDay(), now()->addDays(7)->endOfDay());
-        $upcoming = $this->table('lessons')->join('school_classes', 'lessons.class_id', '=', 'school_classes.id')->whereIn('lessons.class_id', $classIds)->where('starts_at', '>=', now()->startOfDay())->where('starts_at', '<=', now()->addDays(7))->where('lessons.status', '!=', 'cancelled')->orderBy('starts_at')->select('lessons.*', 'school_classes.name as class_name')->limit(6)->get();
-        $due = $this->table('assignments')->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')->whereIn('assignment_classes.class_id', $classIds)->where('due_at', '>=', now())->where('due_at', '<=', now()->addDays(7))->where('published', true)->select('assignments.*')->distinct()->orderBy('due_at')->limit(6)->get();
-        $completedSubmissions = $this->table('submissions')
-            ->join('assignments', 'submissions.assignment_id', '=', 'assignments.id')
-            ->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')
-            ->join('class_memberships', function (JoinClause $join): void {
-                $join->on('class_memberships.class_id', '=', 'assignment_classes.class_id')
-                    ->on('class_memberships.student_id', '=', 'submissions.student_id');
-            })
-            ->where('assignments.organization_id', $this->user()->organization_id)
-            ->where('assignment_classes.organization_id', $this->user()->organization_id)
-            ->where('class_memberships.organization_id', $this->user()->organization_id)
-            ->whereIn('assignment_classes.class_id', $classIds)
-            ->where('assignments.published', true)
-            ->whereIn('submissions.status', ['submitted', 'graded'])
-            ->whereNotNull('submissions.submitted_at');
-        if ($student) {
-            $completedSubmissions->where('submissions.student_id', $this->user()->id);
+        $assignments = $this->access->assigned('assignments')->where('published', true)->whereNotIn('lifecycle', ['draft', 'archived']);
+        $assignmentIds = (clone $assignments)->pluck('assignments.id');
+        $completed = $this->table('submissions')->join('assignment_students', function (JoinClause $join): void {
+            $join->on('assignment_students.assignment_id', '=', 'submissions.assignment_id')->on('assignment_students.student_id', '=', 'submissions.student_id');
+        })->whereIn('submissions.assignment_id', $assignmentIds)->whereIn('submissions.status', ['submitted', 'graded'])->whereNotNull('submissions.submitted_at');
+        if (in_array($this->user()->role, ['student', 'parent'], true)) {
+            $completed->whereIn('submissions.student_id', $this->access->studentIds());
         }
+        $completedCount = $completed->distinct()->count('submissions.id');
+        $this->timetable->materialize(now()->startOfDay(), now()->addDays(7)->endOfDay());
+        $upcoming = $this->access->assigned('lessons')->where('starts_at', '>=', now()->startOfDay())->where('starts_at', '<=', now()->addDays(7))->where('status', '!=', 'cancelled')->orderBy('starts_at')->limit(6)->get();
+        $due = (clone $assignments)->whereBetween('due_at', [now(), now()->addDays(7)])->orderBy('due_at')->limit(6)->get();
 
-        return response()->json(['classes' => count($classIds), 'assignments' => $assignments, 'submissions' => $completedSubmissions->distinct()->count('submissions.id'), 'notifications' => $this->table('notifications')->where('user_id', $this->user()->id)->whereNull('read_at')->count(), 'upcoming_lessons' => $upcoming, 'due_assignments' => $due]);
+        return response()->json(['students' => count($this->access->studentIds()), 'assignments' => $assignmentIds->count(), 'pending_assignments' => max(0, $assignmentIds->count() - $completedCount), 'submissions' => $completedCount, 'notifications' => $this->table('notifications')->where('user_id', $this->user()->id)->whereNull('read_at')->count(), 'upcoming_lessons' => $upcoming, 'due_assignments' => $due]);
     }
 
     public function users(Request $request): JsonResponse
@@ -141,11 +120,8 @@ class ApiController extends Controller
         if ($request->filled('role')) {
             $query->where('role', $request->string('role'));
         }
-        if ($this->user()->role === 'teacher' && ! ($request->boolean('unassigned') && $request->query('role') === 'student')) {
-            $query->whereIn('id', $this->table('class_memberships')->whereIn('class_id', $this->classIds())->select('student_id'));
-        }
-        if ($request->boolean('unassigned')) {
-            $query->where('role', 'student')->whereNotIn('id', $this->table('class_memberships')->select('student_id'));
+        if ($request->boolean('linked')) {
+            $query->whereIn('id', $this->access->studentIds());
         }
 
         return response()->json($query->get());
@@ -234,104 +210,6 @@ class ApiController extends Controller
         return response()->json($this->table('school_years')->find($id), 201);
     }
 
-    public function classes(): JsonResponse
-    {
-        $rows = $this->table('school_classes')->join('subjects', 'school_classes.subject_id', '=', 'subjects.id')->join('users', 'school_classes.teacher_id', '=', 'users.id')->whereIn('school_classes.id', $this->classIds())->select('school_classes.*', 'subjects.name as subject_name', 'subjects.color as subject_color', 'users.name as teacher_name')->orderBy('school_classes.name')->get();
-        foreach ($rows as $row) {
-            $row->student_count = $this->table('class_memberships')->where('class_id', $row->id)->count();
-        }
-
-        return response()->json($rows);
-    }
-
-    public function saveClass(Request $request, ?int $id = null): JsonResponse
-    {
-        $this->requireRole('admin');
-        $data = $request->validate(['name' => ['required', 'string', 'max:80'], 'subject_id' => ['required', $this->access->exists('subjects')], 'teacher_id' => ['required', $this->access->exists('users')->where('role', 'teacher')], 'school_year_id' => ['required', $this->access->exists('school_years')], 'room' => ['nullable', 'string', 'max:80']]);
-        $before = $id ? $this->table('school_classes')->find($id) : null;
-        if ($id) {
-            abort_unless($before, 404);
-            $this->table('school_classes')->where('id', $id)->update([...$data, 'updated_at' => now()]);
-        } else {
-            $id = DB::transaction(function () use ($data) {
-                $this->access->enforceLimit('classes');
-
-                return $this->table('school_classes')->insertGetId([...$data, 'created_at' => now(), 'updated_at' => now()]);
-            });
-        }
-        $this->auditChange($before ? 'updated' : 'created', 'class', $id, $before, $data);
-
-        return response()->json($this->table('school_classes')->find($id), $before ? 200 : 201);
-    }
-
-    public function classStudents(int $id): JsonResponse
-    {
-        $this->classAccess($id);
-
-        return response()->json(User::query()->where('users.organization_id', $this->user()->organization_id)->when($this->user()->role === 'student', fn ($query) => $query->where('users.id', $this->user()->id))->join('class_memberships', 'users.id', '=', 'class_memberships.student_id')->where('class_memberships.class_id', $id)->select('users.id', 'users.name', 'users.email')->orderBy('users.name')->get());
-    }
-
-    public function addStudent(Request $request, int $id): JsonResponse
-    {
-        $class = $this->classAccess($id, true);
-        $data = $request->validate(['student_id' => ['required', $this->access->exists('users')->where('role', 'student')]]);
-        DB::transaction(function () use ($class, $data, $id) {
-            $student = User::where('organization_id', $this->user()->organization_id)->whereKey($data['student_id'])->lockForUpdate()->firstOrFail();
-            if ($this->table('class_memberships')->where('student_id', $student->id)->exists()) {
-                throw ValidationException::withMessages(['student_id' => 'Học sinh đã thuộc một lớp. Vui lòng dùng chức năng Chuyển lớp.']);
-            }
-            $this->table('class_memberships')->insert(['class_id' => $id, 'student_id' => $student->id, 'created_at' => now(), 'updated_at' => now()]);
-            $this->auditChange('added', 'class_membership', $id, null, $data);
-            $this->notifyUsers([$student->id], 'Đã thêm vào lớp học', 'Em đã được thêm vào lớp '.$class->name.'.', 'class', '/app/');
-            $this->notifyUsers([$class->teacher_id], 'Học sinh mới trong lớp', $student->name.' đã được thêm vào lớp '.$class->name.'.', 'class', '/app/');
-        });
-
-        return response()->json(['message' => 'Đã thêm học sinh vào lớp.']);
-    }
-
-    public function transferStudent(Request $request, int $id): JsonResponse
-    {
-        $this->classAccess($id, true);
-        $data = $request->validate([
-            'student_id' => ['required', $this->access->exists('users')->where('role', 'student')],
-            'target_class_id' => ['required', 'integer', Rule::notIn([$id]), $this->access->exists('school_classes')],
-        ]);
-        $target = $this->classAccess((int) $data['target_class_id'], true);
-
-        DB::transaction(function () use ($data, $id, $target) {
-            $student = User::where('organization_id', $this->user()->organization_id)->whereKey($data['student_id'])->lockForUpdate()->firstOrFail();
-            $previous = $this->table('class_memberships')
-                ->join('school_classes', 'class_memberships.class_id', '=', 'school_classes.id')
-                ->where('class_memberships.student_id', $student->id)
-                ->select('school_classes.id', 'school_classes.name', 'school_classes.teacher_id')
-                ->get();
-            if (! $previous->contains('id', $id)) {
-                throw ValidationException::withMessages(['student_id' => 'Học sinh không thuộc lớp nguồn đã chọn.']);
-            }
-            if ($this->user()->role !== 'admin' && $previous->contains(fn ($class) => $class->teacher_id !== $this->user()->id)) {
-                abort(403, 'Giáo viên không thể chuyển học sinh khỏi lớp của giáo viên khác.');
-            }
-
-            $this->table('class_memberships')->where('student_id', $student->id)->delete();
-            $this->table('class_memberships')->insert(['class_id' => $target->id, 'student_id' => $student->id, 'created_at' => now(), 'updated_at' => now()]);
-            $from = $previous->where('id', '!=', $target->id)->pluck('name')->implode(', ');
-            $this->auditChange('transferred', 'class_membership', $target->id, ['student_id' => $student->id, 'class_ids' => $previous->pluck('id')->all()], ['student_id' => $student->id, 'class_id' => $target->id]);
-            $this->notifyUsers([$student->id], 'Đã chuyển lớp', 'Em đã được chuyển từ '.$from.' sang '.$target->name.'.', 'transfer', '/app/');
-            $this->notifyUsers([...$previous->pluck('teacher_id')->all(), $target->teacher_id], 'Học sinh chuyển lớp', $student->name.' đã chuyển từ '.$from.' sang '.$target->name.'.', 'transfer', '/app/');
-        });
-
-        return response()->json(['message' => 'Đã chuyển học sinh sang lớp mới.']);
-    }
-
-    public function removeStudent(int $id, int $studentId): JsonResponse
-    {
-        $this->classAccess($id, true);
-        $this->table('class_memberships')->where('class_id', $id)->where('student_id', $studentId)->delete();
-        $this->auditChange('removed', 'class_membership', $id, ['student_id' => $studentId], null);
-
-        return response()->json(['message' => 'Đã xóa học sinh khỏi lớp.']);
-    }
-
     private function assignmentAccess(int $id, bool $write = false): object
     {
         return $this->access->assignment($id, $write);
@@ -339,13 +217,12 @@ class ApiController extends Controller
 
     public function assignments(): JsonResponse
     {
-        $classIds = $this->classIds();
-        $rows = $this->table('assignments')->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')->whereIn('assignment_classes.class_id', $classIds)->when($this->user()->role === 'student', fn ($query) => $query->where('assignments.published', true))->select('assignments.*')->distinct()->orderByDesc('assignments.created_at')->get();
+        $rows = $this->access->assigned('assignments')->when($this->user()->role === 'student', fn ($q) => $q->where('published', true)->whereNotIn('lifecycle', ['draft', 'archived']))->orderByDesc('created_at')->get();
         foreach ($rows as $row) {
             $row->question_count = $this->table('assignment_questions')->where('assignment_id', $row->id)->count();
-            $row->classes = $this->table('assignment_classes')->join('school_classes', 'assignment_classes.class_id', '=', 'school_classes.id')->where('assignment_id', $row->id)->pluck('school_classes.name');
-            $row->submitted_count = $this->table('submissions')->where('assignment_id', $row->id)->whereNotNull('submitted_at')->count();
-            $row->student_count = $this->table('class_memberships')->whereIn('class_id', $this->table('assignment_classes')->where('assignment_id', $row->id)->select('class_id'))->distinct()->count('student_id');
+            $row->student_ids = $this->table('assignment_students')->where('assignment_id', $row->id)->pluck('student_id');
+            $row->student_count = $row->student_ids->count();
+            $row->submitted_count = $this->table('submissions')->where('assignment_id', $row->id)->whereIn('student_id', $row->student_ids)->whereIn('status', ['submitted', 'graded'])->whereNotNull('submitted_at')->count();
             if ($this->user()->role === 'student') {
                 $row->my_submission = $this->table('submissions')->where('assignment_id', $row->id)->where('student_id', $this->user()->id)->first();
             }
@@ -357,7 +234,7 @@ class ApiController extends Controller
     public function assignment(int $id): JsonResponse
     {
         $assignment = $this->assignmentAccess($id);
-        $assignment->class_ids = $this->table('assignment_classes')->where('assignment_id', $id)->pluck('class_id');
+        $assignment->student_ids = $this->table('assignment_students')->where('assignment_id', $id)->pluck('student_id');
         $assignment->question_count = $this->table('assignment_questions')->where('assignment_id', $id)->count();
         $assignment->attachments = $this->table('attachments')->where('assignment_id', $id)->get();
         if ($this->user()->role === 'student') {
@@ -370,37 +247,33 @@ class ApiController extends Controller
     public function saveAssignment(Request $request, ?int $id = null): JsonResponse
     {
         $this->requireRole('admin', 'teacher');
-        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'instructions' => ['required', 'string'], 'criteria' => ['nullable', 'string'], 'max_score' => ['required', 'numeric', 'gt:0', 'lte:100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['required', 'date', 'after:now'], 'submission_type' => ['required', Rule::in(['file', 'text', 'both'])], 'class_ids' => ['required', 'array', 'min:1'], 'class_ids.*' => ['integer', $this->access->exists('school_classes')], 'published' => ['boolean']]);
-        foreach ($data['class_ids'] as $classId) {
-            $this->classAccess((int) $classId, true);
-        }
+        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'instructions' => ['required', 'string'], 'criteria' => ['nullable', 'string'], 'max_score' => ['required', 'numeric', 'gt:0', 'lte:100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['required', 'date', 'after:now'], 'submission_type' => ['required', Rule::in(['file', 'text', 'both'])], ...$this->access->recipientRules(), 'subject_id' => ['nullable', 'integer', $this->access->exists('subjects')], 'published' => ['boolean']]);
         if (! empty($data['starts_at']) && strtotime($data['starts_at']) >= strtotime($data['due_at'])) {
             throw ValidationException::withMessages(['due_at' => 'Hạn nộp phải sau ngày bắt đầu.']);
         }
-        $classIds = $data['class_ids'];
-        unset($data['class_ids']);
+        $studentIds = $data['student_ids'];
+        unset($data['student_ids']);
         $before = $id ? $this->assignmentAccess($id, true) : null;
+        $previousStudents = $id ? $this->table('assignment_students')->where('assignment_id', $id)->pluck('student_id')->all() : [];
         if ($before && $this->table('assignment_attempts')->where('assignment_id', $id)->exists()) {
             abort_if((float) $before->max_score !== (float) $data['max_score'], 422, 'Không thể đổi thang điểm khi đã có lượt làm bài.');
         }
-        $assignmentId = DB::transaction(function () use ($id, $data, $classIds) {
+        $assignmentId = DB::transaction(function () use ($id, $data, $studentIds) {
             if ($id) {
                 $this->table('assignments')->where('id', $id)->update([...$data, 'updated_at' => now()]);
-                $this->table('assignment_classes')->where('assignment_id', $id)->delete();
+
                 $assignmentId = $id;
             } else {
                 $assignmentId = $this->table('assignments')->insertGetId([...$data, 'teacher_id' => $this->user()->id, 'created_at' => now(), 'updated_at' => now()]);
             }
-            foreach (array_unique($classIds) as $classId) {
-                $this->table('assignment_classes')->insert(['assignment_id' => $assignmentId, 'class_id' => $classId]);
-            }
+            $this->access->setRecipients('assignment_students', 'assignment_id', $assignmentId, $studentIds, $data['teacher_id'] ?? $this->table('assignments')->where('id', $assignmentId)->value('teacher_id'));
 
             return $assignmentId;
         });
         $this->auditChange($before ? 'updated' : 'created', 'assignment', $assignmentId, $before, $data);
-        if ((! $before || ! $before->published) && ($data['published'] ?? true)) {
-            $students = $this->table('class_memberships')->whereIn('class_id', $classIds)->pluck('student_id')->all();
-            $this->notifyUsers($students, 'Bài tập mới', $data['title'].' · Hạn nộp '.date('d/m/Y H:i', strtotime($data['due_at'])), 'assignment', '/assignments/'.$assignmentId);
+        if ($data['published'] ?? $before?->published ?? true) {
+            $newRecipients = ! $before || ! $before->published ? $studentIds : array_values(array_diff($studentIds, $previousStudents));
+            $this->notifyUsers($newRecipients, 'Bài tập mới', $data['title'].' · Hạn nộp '.date('d/m/Y H:i', strtotime($data['due_at'])), 'assignment', '/assignments/'.$assignmentId);
         }
 
         return response()->json($this->table('assignments')->find($assignmentId), $before ? 200 : 201);
@@ -478,9 +351,9 @@ class ApiController extends Controller
 
     public function submissions(int $id): JsonResponse
     {
+        $this->requireRole('teacher', 'admin');
         $this->assignmentAccess($id, true);
-        $classIds = $this->table('assignment_classes')->where('assignment_id', $id)->pluck('class_id');
-        $students = User::query()->where('users.organization_id', $this->user()->organization_id)->join('class_memberships', 'users.id', '=', 'class_memberships.student_id')->whereIn('class_memberships.class_id', $classIds)->select('users.id', 'users.name', 'users.email')->distinct()->orderBy('users.name')->get();
+        $students = $this->table('users')->whereIn('id', $this->table('assignment_students')->where('assignment_id', $id)->select('student_id'))->select('id', 'name', 'email')->orderBy('name')->get();
         foreach ($students as $student) {
             $student->submission = $this->table('submissions')->where('assignment_id', $id)->where('student_id', $student->id)->first();
             if ($student->submission) {
@@ -541,11 +414,13 @@ class ApiController extends Controller
     {
         $this->requireRole('teacher', 'admin', 'student', 'parent');
         $request->validate(['from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d']]);
-        $classIds = $this->access->scheduleClassIds();
         $from = $request->date('from')?->startOfDay() ?? now()->startOfWeek();
         $to = $request->date('to')?->endOfDay() ?? now()->endOfWeek();
         $this->timetable->materialize($from, $to);
-        $rows = $this->table('lessons')->join('school_classes', 'lessons.class_id', '=', 'school_classes.id')->join('subjects', 'lessons.subject_id', '=', 'subjects.id')->join('users', 'lessons.teacher_id', '=', 'users.id')->whereIn('lessons.class_id', $classIds)->whereBetween('starts_at', [$from, $to])->select('lessons.*', 'school_classes.name as class_name', 'subjects.name as subject_name', 'users.name as teacher_name')->orderBy('starts_at')->get();
+        $rows = $this->access->assigned('lessons')->join('subjects', 'lessons.subject_id', '=', 'subjects.id')->join('users', 'lessons.teacher_id', '=', 'users.id')->whereBetween('starts_at', [$from, $to])->select('lessons.*', 'subjects.name as subject_name', 'users.name as teacher_name')->orderBy('starts_at')->get();
+        foreach ($rows as $row) {
+            $row->student_ids = $this->table('lesson_students')->where('lesson_id', $row->id)->pluck('student_id');
+        }
 
         return response()->json($rows);
     }
@@ -555,17 +430,15 @@ class ApiController extends Controller
         return DB::transaction(function () use ($request, $id): JsonResponse {
             $this->timetable->lock();
             $this->requireRole('admin', 'teacher');
-            $data = $request->validate(['class_id' => ['required', $this->access->exists('school_classes')], 'subject_id' => ['required', $this->access->exists('subjects')], 'teacher_id' => ['required', $this->access->exists('users')->where('role', 'teacher')], 'title' => ['required', 'string', 'max:180'], 'room' => ['nullable', 'string', 'max:80'], 'period' => ['nullable', 'integer', 'between:1,12'], 'starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:starts_at'], 'status' => ['required', Rule::in(['scheduled', 'rescheduled', 'makeup', 'cancelled'])], 'note' => ['nullable', 'string']]);
-            $this->classAccess((int) $data['class_id'], true);
+            $data = $request->validate([...$this->access->recipientRules(), 'subject_id' => ['required', $this->access->exists('subjects')], 'teacher_id' => ['required', $this->access->exists('users')->where('role', 'teacher')], 'title' => ['required', 'string', 'max:180'], 'room' => ['nullable', 'string', 'max:80'], 'period' => ['nullable', 'integer', 'between:1,12'], 'starts_at' => ['required', 'date'], 'ends_at' => ['required', 'date', 'after:starts_at'], 'status' => ['required', Rule::in(['scheduled', 'rescheduled', 'makeup', 'cancelled'])], 'note' => ['nullable', 'string']]);
             abort_if($this->user()->role === 'teacher' && (int) $data['teacher_id'] !== $this->user()->id, 403);
             foreach (['starts_at', 'ends_at'] as $field) {
                 $data[$field] = CarbonImmutable::parse($data[$field], config('app.timezone'))->setTimezone(config('app.timezone'))->toDateTimeString();
             }
-            $this->timetable->conflict($data, $id);
             $before = $id ? $this->table('lessons')->find($id) : null;
             if ($id) {
                 abort_unless($before, 404);
-                $this->classAccess($before->class_id, true);
+                $this->access->resource('lessons', $id, true);
                 if ($this->user()->role === 'teacher' && ! $this->attendanceEditAccess($before)['can_edit']) {
                     $timezone = config('app.timezone');
                     $originalDate = CarbonImmutable::parse($before->starts_at, $timezone)->setTimezone($timezone)->toDateString();
@@ -573,29 +446,21 @@ class ApiController extends Controller
                     abort_unless($originalDate === $requestedDate, 403, 'Không thể đổi ngày của tiết học đã qua. Vui lòng liên hệ quản trị viên nếu cần điều chỉnh.');
                 }
             }
-            if ($data['status'] !== 'cancelled') {
-                $conflict = $this->table('lessons')->where('status', '!=', 'cancelled')->where('starts_at', '<', $data['ends_at'])->where('ends_at', '>', $data['starts_at'])->when($id, fn ($query) => $query->where('id', '!=', $id))->where(function ($query) use ($data) {
-                    $query->where('class_id', $data['class_id'])->orWhere('teacher_id', $data['teacher_id']);
-                    if (! empty($data['room'])) {
-                        $query->orWhere('room', $data['room']);
-                    }
-                })->first();
-                if ($conflict) {
-                    throw ValidationException::withMessages(['starts_at' => 'Trùng lịch với lớp, giáo viên hoặc phòng học khác.']);
-                }
-            }
+            $this->timetable->conflict($data, $id);
             if ($before?->recurrence_id) {
                 $data['is_exception'] = true;
             }
+            $studentIds = $data['student_ids'];
+            unset($data['student_ids']);
             if ($id) {
                 $this->table('lessons')->where('id', $id)->update([...$data, 'updated_at' => now()]);
             } else {
                 $id = $this->table('lessons')->insertGetId([...$data, 'created_at' => now(), 'updated_at' => now()]);
             }
+            $this->access->setRecipients('lesson_students', 'lesson_id', $id, $studentIds, (int) $data['teacher_id']);
             $this->auditChange($before ? 'updated' : 'created', 'lesson', $id, $before, $data);
             if ($before && ($before->starts_at !== $data['starts_at'] || $before->room !== ($data['room'] ?? null) || $before->status !== $data['status'])) {
-                $students = $this->table('class_memberships')->where('class_id', $data['class_id'])->pluck('student_id')->all();
-                $this->notifyUsers($students, 'Thời khóa biểu thay đổi', $data['title'].' · '.date('d/m/Y H:i', strtotime($data['starts_at'])), 'schedule');
+                $this->notifyUsers($studentIds, 'Thời khóa biểu thay đổi', $data['title'].' · '.date('d/m/Y H:i', strtotime($data['starts_at'])), 'schedule');
             }
 
             return response()->json($this->table('lessons')->find($id), $before ? 200 : 201);
@@ -606,15 +471,15 @@ class ApiController extends Controller
     {
         $lesson = $this->table('lessons')->find($id);
         abort_unless($lesson, 404);
-        $this->classAccess($lesson->class_id);
-        $rows = $this->table('class_memberships')->join('users', 'class_memberships.student_id', '=', 'users.id')->leftJoin('attendance_records', function ($join) use ($id) {
+        $this->access->resource('lessons', $id);
+        $rows = $this->table('lesson_students')->join('users', 'lesson_students.student_id', '=', 'users.id')->leftJoin('attendance_records', function ($join) use ($id) {
             $join->on('attendance_records.student_id', '=', 'users.id')->where('attendance_records.lesson_id', '=', $id);
-        })->where('class_memberships.class_id', $lesson->class_id)->select('users.id', 'users.name', 'attendance_records.status', 'attendance_records.note')->orderBy('users.name')->get();
+        })->where('lesson_students.lesson_id', $id)->select('users.id', 'users.name', 'attendance_records.status', 'attendance_records.note')->orderBy('users.name')->get();
         foreach ($rows as $row) {
             $row->status ??= 'present';
         }
-        if ($this->user()->role === 'student') {
-            $rows = $rows->where('id', $this->user()->id)->values();
+        if (in_array($this->user()->role, ['student', 'parent'], true)) {
+            $rows = $rows->whereIn('id', $this->access->studentIds())->values();
         }
 
         return response()->json(['lesson' => $lesson, 'students' => $rows, ...$this->attendanceEditAccess($lesson)]);
@@ -640,13 +505,13 @@ class ApiController extends Controller
         $this->requireRole('admin', 'teacher');
         $lesson = $this->table('lessons')->find($id);
         abort_unless($lesson, 404);
-        $this->classAccess($lesson->class_id, true);
+        $this->access->resource('lessons', $id, true);
         $access = $this->attendanceEditAccess($lesson);
         abort_unless($access['can_edit'], 403, $access['locked_reason']);
         $data = $request->validate(['records' => ['required', 'array', 'max:1000'], 'records.*.student_id' => ['required', 'integer', 'distinct', $this->access->exists('users')], 'records.*.status' => ['required', Rule::in(['present', 'late', 'excused', 'unexcused'])], 'records.*.note' => ['nullable', 'string', 'max:1000']]);
-        $memberIds = $this->table('class_memberships')->where('class_id', $lesson->class_id)->pluck('student_id')->all();
+        $memberIds = $this->table('lesson_students')->where('lesson_id', $id)->pluck('student_id')->all();
         foreach ($data['records'] as $record) {
-            abort_unless(in_array($record['student_id'], $memberIds), 422, 'Có học sinh không thuộc lớp này.');
+            abort_unless(in_array($record['student_id'], $memberIds), 422, 'Có học sinh không được xếp vào buổi học này.');
         }
         DB::transaction(function () use ($data, $id, $memberIds) {
             $byStudent = collect($data['records'])->keyBy('student_id');
@@ -664,14 +529,15 @@ class ApiController extends Controller
             }
         });
 
-        return response()->json(['message' => 'Đã lưu điểm danh cho cả lớp.']);
+        return response()->json(['message' => 'Đã lưu điểm danh cho buổi học.']);
     }
 
     public function games(): JsonResponse
     {
-        $rows = $this->table('games')->join('school_classes', 'games.class_id', '=', 'school_classes.id')->whereIn('games.class_id', $this->classIds())->select('games.*', 'school_classes.name as class_name')->orderByDesc('games.created_at')->get();
+        $rows = $this->access->assigned('games')->orderByDesc('created_at')->get();
         foreach ($rows as $row) {
             $row->question_count = $this->table('questions')->where('game_id', $row->id)->count();
+            $row->student_ids = $this->table('game_students')->where('game_id', $row->id)->pluck('student_id');
             if ($this->user()->role === 'student') {
                 $row->attempt_count = $this->table('game_attempts')->where('game_id', $row->id)->where('student_id', $this->user()->id)->count();
                 $row->best_score = $this->table('game_attempts')->where('game_id', $row->id)->where('student_id', $this->user()->id)->max('score');
@@ -684,12 +550,13 @@ class ApiController extends Controller
     public function saveGame(Request $request): JsonResponse
     {
         $this->requireRole('admin', 'teacher');
-        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'class_id' => ['required', $this->access->exists('school_classes')], 'type' => ['required', Rule::in(['quiz', 'true_false', 'matching', 'ordering', 'fill_blank', 'timed', 'word_builder', 'listening', 'challenge'])], 'graded' => ['boolean'], 'time_limit_seconds' => ['nullable', 'integer', 'min:10', 'max:3600'], 'due_at' => ['nullable', 'date'], 'allowed_attempts' => ['nullable', 'integer', 'between:0,100'], 'required_xp' => ['nullable', 'integer', 'between:0,100000'], 'level' => ['nullable', 'integer', 'between:1,100'], 'questions' => ['required', 'array', 'min:1', 'max:100'], 'questions.*.kind' => ['nullable', Rule::in(QuestionEngine::TYPES)], 'questions.*.media_url' => ['nullable', 'url:https', 'max:2048'], 'questions.*.prompt' => ['required', 'string'], 'questions.*.options' => ['present', 'array', 'max:100'], 'questions.*.answer' => ['required'], 'questions.*.topic' => ['nullable', 'string', 'max:100']]);
-        $this->classAccess((int) $data['class_id'], true);
+        $data = $request->validate(['title' => ['required', 'string', 'max:180'], ...$this->access->recipientRules(), 'subject_id' => ['nullable', 'integer', $this->access->exists('subjects')], 'type' => ['required', Rule::in(['quiz', 'true_false', 'matching', 'ordering', 'fill_blank', 'timed', 'word_builder', 'listening', 'challenge'])], 'graded' => ['boolean'], 'time_limit_seconds' => ['nullable', 'integer', 'min:10', 'max:3600'], 'due_at' => ['nullable', 'date'], 'allowed_attempts' => ['nullable', 'integer', 'between:0,100'], 'required_xp' => ['nullable', 'integer', 'between:0,100000'], 'level' => ['nullable', 'integer', 'between:1,100'], 'questions' => ['required', 'array', 'min:1', 'max:100'], 'questions.*.kind' => ['nullable', Rule::in(QuestionEngine::TYPES)], 'questions.*.media_url' => ['nullable', 'url:https', 'max:2048'], 'questions.*.prompt' => ['required', 'string'], 'questions.*.options' => ['present', 'array', 'max:100'], 'questions.*.answer' => ['required'], 'questions.*.topic' => ['nullable', 'string', 'max:100']]);
         $questions = $data['questions'];
-        unset($data['questions']);
-        $id = DB::transaction(function () use ($data, $questions) {
+        $students = $data['student_ids'];
+        unset($data['questions'], $data['student_ids']);
+        $id = DB::transaction(function () use ($data, $questions, $students) {
             $gameId = $this->table('games')->insertGetId([...$data, 'teacher_id' => $this->user()->id, 'created_at' => now(), 'updated_at' => now()]);
+            $this->access->setRecipients('game_students', 'game_id', $gameId, $students, $this->user()->id);
             foreach ($questions as $index => $question) {
                 $kind = $question['kind'] ?? match ($data['type']) {
                     'matching' => 'matching', 'ordering' => 'ordering', 'fill_blank' => 'fill_blank', 'word_builder' => 'word_builder', 'listening' => 'audio', default => 'single'
@@ -702,7 +569,6 @@ class ApiController extends Controller
 
             return $gameId;
         });
-        $students = $this->table('class_memberships')->where('class_id', $data['class_id'])->pluck('student_id')->all();
         $this->notifyUsers($students, 'Trò chơi mới', $data['title'], 'game', '/games/'.$id);
 
         return response()->json($this->table('games')->find($id), 201);
@@ -712,7 +578,7 @@ class ApiController extends Controller
     {
         $game = $this->table('games')->find($id);
         abort_unless($game, 404);
-        $this->classAccess($game->class_id);
+        $this->access->resource('games', $id);
         $questions = $this->table('questions')->where('game_id', $id)->orderBy('sort_order')->get();
         foreach ($questions as $question) {
             $question->options = json_decode($question->options, true);
@@ -729,35 +595,33 @@ class ApiController extends Controller
 
     public function progress(Request $request): JsonResponse
     {
-        $classIds = $this->classIds();
-        $classId = $request->integer('class_id');
-        if ($classId) {
-            $this->classAccess($classId);
-            $classIds = [$classId];
+        $ids = $this->access->studentIds();
+        if ($request->filled('student_id')) {
+            abort_unless(in_array($request->integer('student_id'), $ids, true), 404);
+            $ids = [$request->integer('student_id')];
         }
-        $students = User::query()->where('users.organization_id', $this->user()->organization_id)->join('class_memberships', 'users.id', '=', 'class_memberships.student_id')->whereIn('class_memberships.class_id', $classIds)->select('users.id', 'users.name', 'users.email')->distinct()->orderBy('users.name')->get();
-        if ($this->user()->role === 'student') {
-            $students = $students->where('id', $this->user()->id)->values();
-        }
-        $assignmentIds = $this->table('assignment_classes')->whereIn('class_id', $classIds)->pluck('assignment_id')->unique()->all();
-        $lessonIds = $this->table('lessons')->whereIn('class_id', $classIds)->where('starts_at', '<=', now())->pluck('id')->all();
-        $gameIds = $this->table('games')->whereIn('class_id', $classIds)->pluck('id')->all();
+        $students = $this->table('users')->whereIn('id', $ids)->select('id', 'name', 'email')->orderBy('name')->get();
+        $availableAssignments = $this->access->assigned('assignments')->where('published', true)->pluck('id');
+        $availableLessons = $this->access->assigned('lessons')->where('starts_at', '<=', now())->pluck('id');
+        $availableGames = $this->access->assigned('games')->pluck('id');
         $attention = (int) $this->table('app_settings')->where('key', 'attention_threshold')->value('value') ?: 70;
         $risk = (int) $this->table('app_settings')->where('key', 'risk_threshold')->value('value') ?: 50;
         foreach ($students as $student) {
+            $assignmentIds = $this->table('assignment_students')->where('student_id', $student->id)->whereIn('assignment_id', $availableAssignments)->pluck('assignment_id')->all();
+            $lessonIds = $this->table('lesson_students')->where('student_id', $student->id)->whereIn('lesson_id', $availableLessons)->pluck('lesson_id')->all();
+            $gameIds = $this->table('game_students')->where('student_id', $student->id)->whereIn('game_id', $availableGames)->pluck('game_id')->all();
             $submissions = $this->table('submissions')->where('student_id', $student->id)->whereIn('assignment_id', $assignmentIds)->get();
-            $submitted = $submissions->whereNotNull('submitted_at')->count();
+            $submitted = $submissions->whereNotNull('submitted_at')->whereIn('status', ['submitted', 'graded'])->count();
             $student->completion_rate = count($assignmentIds) ? round(100 * $submitted / count($assignmentIds)) : 100;
-            $graded = $submissions->whereNotNull('score');
+            $graded = $submissions->where('status', 'graded')->whereNotNull('score');
             $student->average_score = $graded->count() ? round($graded->avg('score'), 1) : null;
             $student->missing_count = max(0, count($assignmentIds) - $submitted);
             $student->late_count = $this->table('submissions')->join('assignments', 'submissions.assignment_id', '=', 'assignments.id')->where('submissions.student_id', $student->id)->whereIn('submissions.assignment_id', $assignmentIds)->whereColumn('submissions.submitted_at', '>', 'assignments.due_at')->count();
             $present = $this->table('attendance_records')->where('student_id', $student->id)->whereIn('lesson_id', $lessonIds)->whereIn('status', ['present', 'late'])->count();
             $student->attendance_rate = count($lessonIds) ? round(100 * $present / count($lessonIds)) : 100;
             $student->game_average = $this->table('game_attempts')->where('student_id', $student->id)->whereIn('game_id', $gameIds)->avg('score');
-            $wrong = $this->table('game_attempts')->where('student_id', $student->id)->whereIn('game_id', $gameIds)->pluck('wrong_topics')->flatMap(fn ($value) => json_decode($value, true) ?: [])->countBy()->sortDesc()->take(3);
-            $student->weak_topics = $wrong->keys()->values();
-            $student->note = $this->table('support_notes')->where('student_id', $student->id)->whereIn('class_id', $classIds)->latest('id')->first();
+            $student->weak_topics = $this->table('game_attempts')->where('student_id', $student->id)->whereIn('game_id', $gameIds)->pluck('wrong_topics')->flatMap(fn ($value) => json_decode($value, true) ?: [])->countBy()->sortDesc()->take(3)->keys()->values();
+            $student->note = $this->table('support_notes')->where('student_id', $student->id)->when($this->user()->role === 'teacher', fn ($q) => $q->where('teacher_id', $this->user()->id))->latest('id')->first();
             $indicator = min($student->completion_rate, $student->attendance_rate);
             $student->level = $student->note?->level ?? ($indicator < $risk ? 'red' : ($indicator < $attention ? 'yellow' : 'green'));
         }
@@ -768,9 +632,8 @@ class ApiController extends Controller
     public function saveSupportNote(Request $request, int $studentId): JsonResponse
     {
         $this->requireRole('admin', 'teacher');
-        $data = $request->validate(['class_id' => ['required', $this->access->exists('school_classes')], 'level' => ['required', Rule::in(['green', 'yellow', 'red'])], 'note' => ['required', 'string'], 'plan' => ['nullable', 'string']]);
-        $this->classAccess((int) $data['class_id'], true);
-        abort_unless($this->table('class_memberships')->where('class_id', $data['class_id'])->where('student_id', $studentId)->exists(), 404);
+        abort_unless(in_array($studentId, $this->access->studentIds(), true), 404);
+        $data = $request->validate(['level' => ['required', Rule::in(['green', 'yellow', 'red'])], 'note' => ['required', 'string'], 'plan' => ['nullable', 'string']]);
         $id = $this->table('support_notes')->insertGetId([...$data, 'student_id' => $studentId, 'teacher_id' => $this->user()->id, 'created_at' => now(), 'updated_at' => now()]);
         $this->auditChange('created', 'support_note', $id, null, $data);
 

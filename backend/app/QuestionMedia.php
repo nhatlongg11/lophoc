@@ -96,7 +96,7 @@ class QuestionMedia
         abort_unless($this->access->user()->role === 'student', 404);
         foreach ($this->access->table('question_media_links')->where('media_id', $id)->get() as $link) {
             if ($link->content_type === 'assignment') {
-                $assigned = $this->access->table('assignment_classes')->where('assignment_id', $link->content_id)->whereIn('class_id', $this->access->classIds())->exists();
+                $assigned = $this->access->table('assignment_students')->where('assignment_id', $link->content_id)->where('student_id', $this->access->user()->id)->exists();
                 if ($assigned && $this->access->table('assignments')->where('id', $link->content_id)->where('published', true)->whereNotIn('lifecycle', ['draft', 'archived'])->exists()) {
                     return $media;
                 }

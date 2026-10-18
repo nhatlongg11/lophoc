@@ -22,12 +22,13 @@ import {
 export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
   const params = new URLSearchParams(window.location.search);
   const [mode, setMode] = useState(
-    params.has("invite") ? "invite" : params.has("reset") ? "reset" : "login",
+    params.has("invite") ? "invite" : params.has("reset") ? "reset" : params.has("register") ? "register" : "login",
   );
   const [email, setEmail] = useState(params.get("email") || ""),
     [password, setPassword] = useState(""),
     [name, setName] = useState(""),
-    [pin, setPin] = useState("");
+    [pin, setPin] = useState(""),
+    [role, setRole] = useState("student");
   const [confirmation, setConfirmation] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -37,6 +38,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
     forgot: "Tìm lại tài khoản",
     reset: "Tạo mật khẩu mới",
     invite: "Chào mừng đến CE - Connecting Education",
+    register: "Tạo tài khoản của bạn",
   };
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,6 +51,20 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
           method: "POST",
           body: { email, password },
         });
+        onLogin(result.user);
+      } else if (mode === "register") {
+        await api("/register", {
+          method: "POST",
+          body: { name, email, password, password_confirmation: confirmation, role, parent_pin: role === "parent" ? pin : null },
+        });
+        setMode("login");
+        setEmail(email.trim().toLowerCase());
+        setMessage("Đã tạo tài khoản. Bạn có thể đăng nhập bằng email và mật khẩu vừa chọn.");
+        const result = await api<{ user: User }>("/login", {
+          method: "POST",
+          body: { email: email.trim().toLowerCase(), password },
+        });
+        window.history.replaceState({}, "", window.location.pathname);
         onLogin(result.user);
       } else if (mode === "forgot") {
         const result = await api<{ message: string }>("/forgot-password", {
@@ -104,7 +120,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
         <h1>{titles[mode]}</h1>
         <p>Một không gian kết nối thầy cô, học sinh và gia đình.</p>
         <form onSubmit={submit}>
-          {mode === "invite" && (
+          {["invite", "register"].includes(mode) && (
             <label>
               Họ và tên
               <input
@@ -132,7 +148,8 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
               Mật khẩu
               <input
                 required
-                minLength={["invite", "reset"].includes(mode) ? 12 : undefined}
+                minLength={["invite", "reset", "register"].includes(mode) ? 12 : undefined}
+                maxLength={mode === "login" ? undefined : 128}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -142,7 +159,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
               />
             </label>
           )}
-          {["invite", "reset"].includes(mode) && (
+          {["invite", "reset", "register"].includes(mode) && (
             <label>
               Nhập lại mật khẩu
               <input
@@ -154,11 +171,13 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
               />
             </label>
           )}
-          {mode === "invite" && (
+          {mode === "register" && <label>Vai trò<select value={role} onChange={e => setRole(e.target.value)}><option value="student">Học sinh</option><option value="teacher">Giáo viên</option><option value="parent">Phụ huynh</option></select></label>}
+          {(mode === "invite" || mode === "register" && role === "parent") && (
             <label>
               PIN phụ huynh (tài khoản gia đình)
               <input
                 type="password"
+                required={mode === "register"}
                 inputMode="numeric"
                 pattern="[0-9]{6,12}"
                 minLength={6}
@@ -169,6 +188,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
               />
             </label>
           )}
+          {mode === "register" && <p className="muted">Mật khẩu tối thiểu 12 ký tự.{role === "parent" && " Quản trị viên sẽ liên kết tài khoản với học sinh để bạn xem thông tin của con."}</p>}
           <ErrorBox message={error} />
           {message && (
             <p className="success-box" role="status">
@@ -187,6 +207,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
                   forgot: "Gửi hướng dẫn",
                   reset: "Lưu mật khẩu",
                   invite: "Tạo tài khoản",
+                  register: "Đăng ký tài khoản",
                 }[mode]}
           </Button>
         </form>
@@ -205,6 +226,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
             </>
           )}
         </button>
+        {mode === "login" && <button className="text-link auth-link" onClick={() => { setMode("register"); setError(""); setMessage(""); setPassword(""); }}>Chưa có tài khoản? Đăng ký</button>}
       </div>
       <div className="login-art">
         <span>KHƠI DẬY NIỀM VUI HỌC TẬP</span>
@@ -438,7 +460,7 @@ export function ParentDashboard() {
                           : "Chờ giáo viên chấm")}
                     </small>
                   </div>
-                  <b>{r.score === null ? "—" : r.score + "/" + r.max_score}</b>
+                  <b>{r.score === null ? "—" : Number(r.score) + "/" + Number(r.max_score)}</b>
                 </div>
               ))}
               {!child.results.length && <Empty>Chưa có bài nộp.</Empty>}

@@ -12,6 +12,7 @@ x-php: &php
     APP_KEY: ${APP_KEY:?Run bash scripts/setup-docker.sh or set APP_KEY in .env}
     APP_DEBUG: "false"
     APP_URL: ${APP_URL:-http://localhost:8080}
+    EDUQUEST_REGISTRATION_ORGANIZATION_ID: ${EDUQUEST_REGISTRATION_ORGANIZATION_ID:-1}
     APP_LOCALE: vi
     APP_FALLBACK_LOCALE: vi
     DB_CONNECTION: pgsql

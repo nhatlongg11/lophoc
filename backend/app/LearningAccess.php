@@ -34,43 +34,70 @@ class LearningAccess
             + (int) $this->table('arcade_rewards')->where('student_id', $id)->sum('amount');
     }
 
-    public function classIds(): array
+    public function studentIds(): array
     {
-        $query = $this->table('school_classes')->whereNull('archived_at');
+        $query = $this->table('users')->where('role', 'student');
 
         return match ($this->user()->role) {
             'admin' => $query->pluck('id')->all(),
-            'teacher' => $query->where('teacher_id', $this->user()->id)->pluck('id')->all(),
-            'student' => $query->whereIn('id', $this->table('class_memberships')->where('student_id', $this->user()->id)->select('class_id'))->pluck('id')->all(),
+            'teacher' => $query->whereIn('id', $this->table('teacher_students')->where('teacher_id', $this->user()->id)->select('student_id'))->pluck('id')->all(),
+            'student' => [$this->user()->id],
+            'parent' => $query->whereIn('id', $this->table('parent_student_links')->where('parent_id', $this->user()->id)->select('student_id'))->pluck('id')->all(),
             default => [],
         };
     }
 
-    public function scheduleClassIds(): array
+    public function assigned(string $resource): TenantQuery
     {
-        if ($this->user()->role === 'parent') {
-            $children = $this->table('parent_student_links')->where('parent_id', $this->user()->id)->pluck('student_id');
-
-            return $this->table('class_memberships')->whereIn('student_id', $children)->pluck('class_id')->unique()->all();
+        [$recipients, $column] = match ($resource) {
+            'assignments' => ['assignment_students', 'assignment_id'],
+            'lessons' => ['lesson_students', 'lesson_id'],
+            'games' => ['game_students', 'game_id'],
+        };
+        $query = $this->table($resource);
+        if ($this->user()->role === 'teacher') {
+            return $query->where($resource.'.teacher_id', $this->user()->id);
+        }
+        if ($this->user()->role !== 'admin') {
+            $query->whereIn($resource.'.id', $this->table($recipients)->whereIn('student_id', $this->studentIds())->select($column));
         }
 
-        return $this->classIds();
+        return $query;
     }
 
-    public function classAccess(int $id, bool $write = false): object
+    public function resource(string $resource, int $id, bool $write = false): object
     {
-        $row = $this->table('school_classes')->where('id', $id)->first();
-        abort_unless($row && in_array($id, $this->classIds(), true) && (! $write || in_array($this->user()->role, ['teacher', 'admin'], true)), 404, 'Không tìm thấy lớp học.');
+        $row = $this->assigned($resource)->where($resource.'.id', $id)->first();
+        abort_unless($row && (! $write || in_array($this->user()->role, ['admin', 'teacher'], true)), 404, 'Không tìm thấy nội dung.');
 
         return $row;
     }
 
+    public function recipientRules(): array
+    {
+        return ['student_ids' => ['required', 'array', 'min:1', 'max:1000'], 'student_ids.*' => ['required', 'integer', 'distinct', $this->exists('users')->where('role', 'student')->where('active', true)]];
+    }
+
+    public function connectStudents(int $teacherId, array $students): void
+    {
+        foreach (array_unique($students) as $student) {
+            $this->table('teacher_students')->insertOrIgnore(['teacher_id' => $teacherId, 'student_id' => $student]);
+        }
+    }
+
+    public function setRecipients(string $table, string $column, int $id, array $students, int $teacherId): void
+    {
+        $this->table($table)->where($column, $id)->delete();
+        foreach (array_unique($students) as $student) {
+            $this->table($table)->insert([$column => $id, 'student_id' => $student]);
+        }
+        $this->connectStudents($teacherId, $students);
+    }
+
     public function assignment(int $id, bool $write = false): object
     {
-        $row = $this->table('assignments')->where('id', $id)->first();
-        $classes = $this->table('assignment_classes')->where('assignment_id', $id)->pluck('class_id')->all();
-        $allowed = $row && ($this->user()->role === 'admin' || ($write ? $this->user()->role === 'teacher' && $row->teacher_id === $this->user()->id : count(array_intersect($classes, $this->classIds())) > 0));
-        abort_unless($allowed && ($this->user()->role !== 'student' || ($row->published && ! in_array($row->lifecycle, ['archived', 'draft'], true))), 404, 'Không tìm thấy bài tập.');
+        $row = $this->resource('assignments', $id, $write);
+        abort_unless($this->user()->role !== 'student' || ($row->published && ! in_array($row->lifecycle, ['archived', 'draft'], true)), 404, 'Không tìm thấy bài tập.');
 
         return $row;
     }
@@ -85,16 +112,10 @@ class LearningAccess
         $org = DB::table('organizations')->where('id', $this->user()->organization_id)->lockForUpdate()->first();
         abort_unless($org && $org->subscription_status === 'active', 403, 'Gói dịch vụ đang tạm ngưng.');
         [$table, $limit, $role] = match ($resource) {
-            'classes' => ['school_classes', $org->max_classes, null],
             'teachers' => ['users', $org->max_teachers, 'teacher'],
             default => ['users', $org->max_students, 'student'],
         };
-        $query = $this->table($table);
-        if ($role) {
-            $query->where('role', $role)->where('active', true);
-        } else {
-            $query->whereNull('archived_at');
-        }
+        $query = $this->table($table)->where('role', $role)->where('active', true);
         abort_if($query->count() >= $limit, 422, 'Đã đạt giới hạn của gói dịch vụ.');
     }
 
@@ -162,7 +183,7 @@ class LearningAccess
             $peer = $messageFile->uploader_id === $me ? $messageFile->peer_id : $messageFile->uploader_id;
             abort_unless(in_array($messageFile->student_id, array_column($this->conversationStudents($peer), 'id'), true), 404);
         } else {
-            $shared = $this->user()->role === 'student' && $file->visibility === 'assigned' && $this->table('material_permissions')->where('attachment_id', $id)->whereIn('class_id', $this->classIds())->exists();
+            $shared = $this->user()->role === 'student' && $file->visibility === 'assigned' && $this->table('material_students')->where('attachment_id', $id)->where('student_id', $this->user()->id)->exists();
             abort_unless($file->resource_owner_id === $this->user()->id || $shared, 404);
         }
 
@@ -188,15 +209,14 @@ class LearningAccess
                 return [];
             }
             $linked = $this->table('parent_student_links')->where('parent_id', $this->user()->id)->pluck('student_id');
-            $classes = $this->table('school_classes')->whereNull('archived_at')->when($peer->role === 'teacher', fn ($q) => $q->where('teacher_id', $peerId))->pluck('id');
+            $students = $peer->role === 'admin' ? $linked : $this->table('teacher_students')->where('teacher_id', $peerId)->whereIn('student_id', $linked)->pluck('student_id');
         } else {
             if (! in_array($peer->role, ['parent', 'family'], true)) {
                 return [];
             }
             $linked = $this->table('parent_student_links')->where('parent_id', $peerId)->pluck('student_id');
-            $classes = $this->classIds();
+            $students = array_intersect($this->studentIds(), $linked->all());
         }
-        $students = $this->table('class_memberships')->whereIn('class_id', $classes)->whereIn('student_id', $linked)->pluck('student_id');
 
         return $this->table('users')->whereIn('id', $students)->where('active', true)->where('role', 'student')->select('id', 'name')->get()->map(fn ($row) => (array) $row)->all();
     }

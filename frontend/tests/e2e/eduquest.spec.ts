@@ -14,14 +14,14 @@ test('teacher authors homework; student submits and retries; parent sees protect
   const teacher = await teacherContext.newPage(), student = await studentContext.newPage(), parent = await parentContext.newPage()
   await login(teacher, 'giaovien@lophoc.local')
   await expect(teacher.getByRole('heading', { name: /Chào/ })).toBeVisible()
-  await expect(teacher.locator('.metric strong').first()).toHaveText('1')
+  await expect(teacher.locator('.metric strong').first()).toHaveText('6')
   await teacher.screenshot({ path: 'tests/artifacts/teacher-dashboard.png', fullPage: true })
   await teacher.getByRole('navigation').getByRole('button', { name: 'Bài tập', exact: true }).click()
   await teacher.getByRole('button', { name: 'Tạo bài tập có câu hỏi' }).click()
   const dialog = teacher.getByRole('dialog')
   const title = 'E2E Kiến thức ' + Date.now()
   await dialog.getByLabel('Tên bài tập').fill(title)
-  await dialog.getByRole('combobox', { name: 'Lớp được giao' }).selectOption({ label: '8A2' })
+  await dialog.getByRole('checkbox', { name: /hocsinh@lophoc.local/ }).check()
   await dialog.getByLabel('Hướng dẫn').fill('Chọn đáp án đúng và lưu bài làm.')
   await dialog.getByLabel('Nội dung câu hỏi').fill('2 + 2 bằng bao nhiêu?')
   await dialog.getByLabel('Các lựa chọn').fill('3\n4\n5')
@@ -30,7 +30,7 @@ test('teacher authors homework; student submits and retries; parent sees protect
   await dialog.getByLabel('Dạng câu hỏi').nth(1).selectOption('fill_blank')
   await dialog.getByLabel('Nội dung câu hỏi').nth(1).fill('I ___ a student.')
   await dialog.getByLabel('Đáp án đúng (mỗi dòng một đáp án được chấp nhận)').fill('am')
-  await dialog.getByRole('button', { name: 'Giao bài cho lớp' }).click()
+  await dialog.getByRole('button', { name: 'Giao bài cho học sinh' }).click()
   await expect(dialog).toBeHidden()
   await teacher.screenshot({ path: 'tests/artifacts/teacher-homework.png', fullPage: true })
   await login(student, 'hocsinh@lophoc.local')
@@ -95,7 +95,8 @@ test('student plays word builder and receives persisted score and XP', async ({ 
   await expect(page.locator('.xp-orb strong')).toHaveText(String(beforeProfile.xp + awarded))
   const afterProfile = await (await page.request.get('/api/games-profile')).json()
   expect(afterProfile.xp).toBe(beforeProfile.xp + awarded)
-  expect(afterProfile.history[0]).toMatchObject({ title: 'Bí mật trong những chữ cái', score: 10 })
+  expect(afterProfile.history[0].title).toBe('Bí mật trong những chữ cái')
+  expect(Number(afterProfile.history[0].score)).toBe(10)
 })
 
 for (const width of [320, 390, 768, 1024, 1440]) {
@@ -123,7 +124,7 @@ test('login and teacher dashboard meet automated accessibility checks', async ({
   expect(loginAudit.violations).toEqual([])
   await login(page, 'giaovien@lophoc.local')
   await expect(page.getByRole('heading', { name: /Chào/ })).toBeVisible()
-  await expect(page.locator('.metric strong').first()).toHaveText('1')
+  await expect(page.locator('.metric strong').first()).toHaveText('6')
   const dashboardAudit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze()
   expect(dashboardAudit.violations).toEqual([])
 })
@@ -133,7 +134,7 @@ test('admin and platform console share the pastel design and enforce role naviga
   const admin = await adminContext.newPage(), platform = await superContext.newPage()
   await login(admin, 'admin@lophoc.local')
   await expect(admin.getByRole('heading', { name: /Chào/ })).toBeVisible()
-  await expect(admin.locator('.metric strong').first()).toHaveText('1')
+  await expect(admin.locator('.metric strong').first()).toHaveText('6')
   await admin.screenshot({ path: 'tests/artifacts/admin-dashboard.png', fullPage: true })
   await admin.getByRole('navigation').getByRole('button', { name: 'Tổ chức & gói dịch vụ', exact: true }).click()
   await expect(admin.getByRole('heading', { name: 'Tổ chức & gói dịch vụ' })).toBeVisible()
@@ -186,16 +187,16 @@ test('past attendance is read only for teachers while today and admin correction
   await login(page, 'giaovien@lophoc.local')
   await expect(page.getByRole('heading', { name: /Chào/ })).toBeVisible()
   const teacher = await (await page.request.get('/api/me')).json()
-  const schoolClass = (await (await page.request.get('/api/classes')).json())[0]
-  const student = (await (await admin.request.get('/api/classes/' + schoolClass.id + '/students')).json())[0]
+  const student = (await (await admin.request.get('/api/users?role=student')).json()).find((s: { email: string }) => s.email === 'hocsinh@lophoc.local')
+  const subject = (await (await admin.request.get('/api/subjects')).json())[0]
   const adminCsrf = (await (await admin.request.get('/api/csrf')).json()).token
   const teacherCsrf = (await (await page.request.get('/api/csrf')).json()).token
   const schoolDate = (offset: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(Date.now() + offset * 86400000))
   async function lessonOn(day: string, label: string) {
     const lessons = await (await admin.request.get('/api/lessons?from=' + day + '&to=' + day)).json()
-    const existing = lessons.find((l: { title: string; class_id: number }) => l.title === label && l.class_id === schoolClass.id)
+    const existing = lessons.find((l: { title: string; student_ids: number[] }) => l.title === label && l.student_ids.includes(student.id))
     if (existing) return existing
-    const response = await admin.request.post('/api/lessons', { headers: { 'X-CSRF-TOKEN': adminCsrf }, data: { title: label, class_id: schoolClass.id, subject_id: schoolClass.subject_id, teacher_id: teacher.id, starts_at: day + 'T06:00:00', ends_at: day + 'T06:45:00', status: 'scheduled' } })
+    const response = await admin.request.post('/api/lessons', { headers: { 'X-CSRF-TOKEN': adminCsrf }, data: { title: label, student_ids: [student.id], subject_id: subject.id, teacher_id: teacher.id, starts_at: day + 'T06:00:00', ends_at: day + 'T06:45:00', status: 'scheduled' } })
     expect(response.status()).toBe(201)
     return response.json()
   }

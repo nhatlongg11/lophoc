@@ -19,7 +19,7 @@ class GameProgressController extends Controller
         $session = DB::transaction(function () use ($id) {
             $game = $this->access->table('games')->where('id', $id)->lockForUpdate()->first();
             abort_unless($game && ! $game->archived_at, 404);
-            $this->access->classAccess($game->class_id);
+            $this->access->resource('games', $id);
             abort_if($game->due_at && now()->greaterThan($game->due_at), 422, 'Vòng chơi đã hết hạn.');
             $xp = $this->access->totalXp();
             abort_if($xp < $game->required_xp, 422, 'Chưa đủ XP để mở vòng chơi.');
@@ -65,7 +65,7 @@ class GameProgressController extends Controller
         $result = DB::transaction(function () use ($data, $id) {
             $game = $this->access->table('games')->where('id', $id)->first();
             abort_unless($game, 404);
-            $this->access->classAccess($game->class_id);
+            $this->access->resource('games', $id);
             $session = $this->access->table('game_sessions')->where('id', $data['session_id'])->where('game_id', $id)->where('student_id', $this->access->user()->id)->lockForUpdate()->first();
             abort_unless($session && ! $session->completed_at, 422, 'Phiên chơi không hợp lệ hoặc đã được nộp.');
             abort_if(now()->greaterThan(Carbon::parse($session->expires_at)->addSeconds(5)), 422, 'Đã hết thời gian làm bài.');
@@ -133,17 +133,16 @@ class GameProgressController extends Controller
     public function leaderboard(Request $request): JsonResponse
     {
         $this->access->requireRole('student', 'teacher', 'admin');
-        $data = $request->validate(['class_id' => ['required', 'integer'], 'period' => ['nullable', 'in:week,month,all']]);
-        $this->access->classAccess((int) $data['class_id']);
+        $data = $request->validate(['period' => ['nullable', 'in:week,month,all']]);
         $org = DB::table('organizations')->where('id', $this->access->user()->organization_id)->first();
         if (! $org->leaderboard_enabled) {
             return response()->json(['enabled' => false, 'rows' => []]);
         }
-        $members = $this->access->table('class_memberships')->where('class_id', $data['class_id'])->pluck('student_id');
+        $members = $this->access->table('users')->where('role', 'student')->pluck('id');
         $from = match ($data['period'] ?? 'week') {
             'month' => now()->startOfMonth(), 'all' => Carbon::create(2000), default => now()->startOfWeek()
         };
-        $rows = $this->access->table('game_attempts')->join('games', 'game_attempts.game_id', '=', 'games.id')->where('games.class_id', $data['class_id'])->whereIn('student_id', $members)->where('game_attempts.created_at', '>=', $from)->groupBy('student_id')->selectRaw('student_id, MAX(points) AS points')->orderByDesc('points')->orderBy('student_id')->limit(50)->get()->map(function ($row) {
+        $rows = $this->access->table('game_attempts')->join('games', 'game_attempts.game_id', '=', 'games.id')->whereIn('student_id', $members)->where('game_attempts.created_at', '>=', $from)->groupBy('student_id')->selectRaw('student_id, MAX(points) AS points')->orderByDesc('points')->orderBy('student_id')->limit(50)->get()->map(function ($row) {
             return ['alias' => 'Nhà thám hiểm '.substr(hash_hmac('sha256', (string) $row->student_id, config('app.key')), 0, 6), 'points' => (int) $row->points, 'is_me' => $row->student_id === $this->access->user()->id];
         });
 

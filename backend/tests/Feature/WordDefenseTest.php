@@ -28,8 +28,8 @@ class WordDefenseTest extends TestCase
         $student = User::factory()->create(['role' => 'student']);
         $year = DB::table('school_years')->insertGetId(['name' => '2026–2027', 'starts_on' => '2026-08-01', 'ends_on' => '2027-05-31', 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Tiếng Anh', 'color' => '#d9eaff', 'created_at' => now(), 'updated_at' => now()]);
-        $class = DB::table('school_classes')->insertGetId(['name' => '5D', 'subject_id' => $subject, 'teacher_id' => $teacher->id, 'school_year_id' => $year, 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id, 'created_at' => now(), 'updated_at' => now()]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         $definition = collect(ArcadeTemplates::all())->firstWhere('id', 'word-defense')['content'];
         $definition['subject_id'] = $subject;
         $definition['activities'] = [$definition['activities'][0]];
@@ -37,7 +37,7 @@ class WordDefenseTest extends TestCase
         $round = $this->postJson('/api/arcade/rounds', ['content' => $definition, 'expected_revision' => 0])->assertCreated()->json('id');
         $this->postJson('/api/arcade/rounds/'.$round.'/preview')->assertOk();
         $this->postJson('/api/arcade/rounds/'.$round.'/publish')->assertOk();
-        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['class_id' => $class, 'allowed_attempts' => 3])->assertCreated()->json('id');
+        $assignment = $this->postJson('/api/arcade/rounds/'.$round.'/assign', ['student_ids' => [$studentId], 'allowed_attempts' => 3])->assertCreated()->json('id');
         $this->withHeaders($this->headers($student));
         $session = $this->postJson('/api/arcade/rounds/'.$round.'/start', ['assignment_id' => $assignment])->assertOk()->json();
         $session = $this->act($session, ['kind' => 'enter']);

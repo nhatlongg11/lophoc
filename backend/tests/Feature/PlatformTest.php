@@ -28,7 +28,7 @@ class PlatformTest extends TestCase
         $this->postJson('/api/invitations/accept', ['token' => $query['invite'], 'name' => 'School Admin', 'password' => 'SafePassword123!', 'password_confirmation' => 'SafePassword123!'])->assertCreated();
         $this->assertDatabaseHas('users', ['email' => 'school@example.test', 'role' => 'admin', 'organization_id' => $result['id']]);
         $this->getJson('/api/users')->assertForbidden();
-        $this->getJson('/api/classes')->assertOk()->assertExactJson([]);
+        $this->getJson('/api/classes')->assertNotFound();
         $this->getJson('/api/platform')->assertOk()->assertJsonCount(2, 'organizations');
     }
 
@@ -41,7 +41,7 @@ class PlatformTest extends TestCase
         $this->postJson('/api/platform/billing-requests/'.$id.'/review', ['approved' => true, 'reason' => 'Contract reviewed'])->assertForbidden();
         $this->assertDatabaseHas('organizations', ['id' => 1, 'plan' => 'free']);
         $this->withHeaders($this->headers($super))->postJson('/api/platform/billing-requests/'.$id.'/review', ['approved' => true, 'reason' => 'Contract reviewed'])->assertOk();
-        $this->assertDatabaseHas('organizations', ['id' => 1, 'plan' => 'teacher_pro', 'max_students' => 200, 'max_classes' => 10]);
+        $this->assertDatabaseHas('organizations', ['id' => 1, 'plan' => 'teacher_pro', 'max_students' => 200, 'max_teachers' => 5]);
         $this->postJson('/api/platform/billing-requests/'.$id.'/review', ['approved' => true, 'reason' => 'Again'])->assertNotFound();
     }
 }

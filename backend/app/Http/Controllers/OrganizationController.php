@@ -18,7 +18,7 @@ class OrganizationController extends Controller
         $this->access->requireRole('admin');
         $org = DB::table('organizations')->where('id', $this->access->user()->organization_id)->first();
 
-        return response()->json(['organization' => $org, 'usage' => ['students' => $this->access->table('users')->where('role', 'student')->where('active', true)->count(), 'teachers' => $this->access->table('users')->where('role', 'teacher')->where('active', true)->count(), 'classes' => $this->access->table('school_classes')->whereNull('archived_at')->count(), 'storage_bytes' => (int) $this->access->table('attachments')->sum('size')], 'requests' => $this->access->table('billing_requests')->orderByDesc('id')->limit(20)->get(), 'plans' => ['free' => ['name' => 'Miễn phí', 'classes' => 3, 'students' => 50, 'teachers' => 3], 'teacher_pro' => ['name' => 'Teacher Pro', 'classes' => 10, 'students' => 200, 'teachers' => 5], 'center' => ['name' => 'Trung tâm', 'classes' => 50, 'students' => 1000, 'teachers' => 30], 'school' => ['name' => 'Trường học', 'classes' => 200, 'students' => 5000, 'teachers' => 200]]]);
+        return response()->json(['organization' => $org, 'usage' => ['students' => $this->access->table('users')->where('role', 'student')->where('active', true)->count(), 'teachers' => $this->access->table('users')->where('role', 'teacher')->where('active', true)->count(), 'storage_bytes' => (int) $this->access->table('attachments')->sum('size')], 'requests' => $this->access->table('billing_requests')->orderByDesc('id')->limit(20)->get(), 'plans' => ['free' => ['name' => 'Miễn phí', 'students' => 50, 'teachers' => 3], 'teacher_pro' => ['name' => 'Teacher Pro', 'students' => 200, 'teachers' => 5], 'center' => ['name' => 'Trung tâm', 'students' => 1000, 'teachers' => 30], 'school' => ['name' => 'Trường học', 'students' => 5000, 'teachers' => 200]]]);
     }
 
     public function update(Request $request): JsonResponse
@@ -79,14 +79,14 @@ class OrganizationController extends Controller
             $org = DB::table('organizations')->where('id', $row->organization_id)->lockForUpdate()->first();
             if ($data['approved']) {
                 $limits = match ($row->plan) {
-                    'teacher_pro' => [10, 200, 5, 1073741824],
-                    'center' => [50, 1000, 30, 10737418240],
-                    'school' => [200, 5000, 200, 53687091200],
-                    default => [3, 50, 3, 104857600],
+                    'teacher_pro' => [200, 5, 1073741824],
+                    'center' => [1000, 30, 10737418240],
+                    'school' => [5000, 200, 53687091200],
+                    default => [50, 3, 104857600],
                 };
                 $users = DB::table('users')->where('organization_id', $org->id)->where('active', true);
-                abort_if((clone $users)->where('role', 'student')->count() > $limits[1] || (clone $users)->where('role', 'teacher')->count() > $limits[2] || DB::table('school_classes')->where('organization_id', $org->id)->whereNull('archived_at')->count() > $limits[0] || DB::table('attachments')->where('organization_id', $org->id)->sum('size') > $limits[3], 422, 'Mức sử dụng hiện tại vượt giới hạn gói được chọn.');
-                DB::table('organizations')->where('id', $org->id)->update(['plan' => $row->plan, 'max_classes' => $limits[0], 'max_students' => $limits[1], 'max_teachers' => $limits[2], 'storage_limit_bytes' => $limits[3], 'updated_at' => now()]);
+                abort_if((clone $users)->where('role', 'student')->count() > $limits[0] || (clone $users)->where('role', 'teacher')->count() > $limits[1] || DB::table('attachments')->where('organization_id', $org->id)->sum('size') > $limits[2], 422, 'Mức sử dụng hiện tại vượt giới hạn gói được chọn.');
+                DB::table('organizations')->where('id', $org->id)->update(['plan' => $row->plan, 'max_students' => $limits[0], 'max_teachers' => $limits[1], 'storage_limit_bytes' => $limits[2], 'updated_at' => now()]);
             }
             DB::table('billing_requests')->where('id', $id)->update(['status' => $data['approved'] ? 'approved' : 'rejected', 'updated_at' => now()]);
             $this->access->audit('plan_reviewed', 'billing_request', $id, null, $data);

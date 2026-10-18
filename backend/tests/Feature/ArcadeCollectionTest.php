@@ -21,11 +21,11 @@ class ArcadeCollectionTest extends TestCase
         $content['activities'] = [['id' => 'quiz', 'engine' => 'quick_challenge', 'title' => 'Math', 'topic' => 'Numbers', 'objective' => 'Count', 'difficulty' => 2, 'allow_hints' => true, 'show_explanations' => true, 'retry_limit' => 1, 'timed' => false, 'time_limit_seconds' => 180, 'items' => [['id' => 'q1', 'prompt' => '2+2?', 'answer_mode' => 'choice', 'choices' => ['3', '4'], 'accepted_answers' => ['4'], 'case_sensitive' => false, 'numeric' => false]]]];
         $round = $this->postJson('/api/arcade/rounds', ['content' => $content, 'expected_revision' => 0])->assertCreated()->json('id');
         $collection = $this->postJson('/api/arcade/collections', ['title' => 'Midterm Math', 'subject_id' => $f['subject'], 'round_ids' => [$round]])->assertCreated()->json('id');
-        $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['class_id' => $f['class'], 'allowed_attempts' => 1])->assertUnprocessable();
+        $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['student_ids' => [$f['student']->id], 'allowed_attempts' => 1])->assertUnprocessable();
         $this->assertDatabaseCount('arcade_assignments', 0);
         $this->postJson('/api/arcade/rounds/'.$round.'/preview')->assertOk();
         $this->postJson('/api/arcade/rounds/'.$round.'/publish')->assertOk();
-        $assigned = $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['class_id' => $f['class'], 'allowed_attempts' => 1])->assertCreated()->json('assignment_ids.0');
+        $assigned = $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['student_ids' => [$f['student']->id], 'allowed_attempts' => 1])->assertCreated()->json('assignment_ids.0');
         $this->eduAs($f['student']);
         $this->getJson('/api/arcade/available?difficulty=2&completion=not_started')->assertOk()->assertJsonPath('total', 1);
         $this->getJson('/api/arcade/available?difficulty=1')->assertJsonPath('total', 0);
@@ -40,7 +40,7 @@ class ArcadeCollectionTest extends TestCase
         $this->getJson('/api/arcade/collections')->assertJsonPath('0.completion_rate', 100)->assertJsonPath('0.completed_count', 1);
         $otherTeacher = User::factory()->create(['role' => 'teacher']);
         $this->eduAs($otherTeacher);
-        $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['class_id' => $f['class'], 'allowed_attempts' => 2])->assertNotFound();
+        $this->postJson('/api/arcade/collections/'.$collection.'/assign', ['student_ids' => [$f['student']->id], 'allowed_attempts' => 2])->assertNotFound();
         $this->getJson('/api/arcade/collections')->assertExactJson([]);
         $this->assertDatabaseHas('arcade_assignments', ['id' => $assigned, 'collection_id' => $collection]);
     }

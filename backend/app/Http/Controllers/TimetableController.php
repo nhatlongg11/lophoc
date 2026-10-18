@@ -17,8 +17,9 @@ class TimetableController extends Controller
     {
         $this->access->requireRole('teacher', 'admin');
 
-        return response()->json($this->access->table('timetable_recurrences')->whereIn('class_id', $this->access->classIds())->orderByDesc('id')->get()->map(function ($rule) {
+        return response()->json($this->access->table('timetable_recurrences')->when($this->access->user()->role === 'teacher', fn ($q) => $q->where('teacher_id', $this->access->user()->id))->orderByDesc('id')->get()->map(function ($rule) {
             $rule->weekdays = json_decode($rule->weekdays, true);
+            $rule->student_ids = json_decode($rule->student_ids, true);
 
             return $rule;
         }));
@@ -27,16 +28,15 @@ class TimetableController extends Controller
     public function save(Request $request, ?int $id = null): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $data = $request->validate(['class_id' => ['required', 'integer'], 'teacher_id' => ['required', 'integer', $this->access->exists('users')->where('role', 'teacher')], 'subject_id' => ['required', 'integer', $this->access->exists('subjects')], 'title' => ['required', 'string', 'max:180'], 'room' => ['nullable', 'string', 'max:80'], 'starts_on' => ['required', 'date_format:Y-m-d'], 'ends_on' => ['required', 'date_format:Y-m-d', 'after_or_equal:starts_on'], 'start_time' => ['required', 'date_format:H:i'], 'end_time' => ['required', 'date_format:H:i', 'after:start_time'], 'weekdays' => ['required', 'array', 'min:1', 'max:7'], 'weekdays.*' => ['integer', 'between:1,7', 'distinct'], 'note' => ['nullable', 'string', 'max:2000']]);
-        $this->access->classAccess($data['class_id'], true);
-        abort_if($this->access->user()->role === 'teacher' && $data['teacher_id'] !== $this->access->user()->id, 403);
+        $data = $request->validate([...$this->access->recipientRules(), 'teacher_id' => ['required', 'integer', $this->access->exists('users')->where('role', 'teacher')], 'subject_id' => ['required', 'integer', $this->access->exists('subjects')], 'title' => ['required', 'string', 'max:180'], 'room' => ['nullable', 'string', 'max:80'], 'starts_on' => ['required', 'date_format:Y-m-d'], 'ends_on' => ['required', 'date_format:Y-m-d', 'after_or_equal:starts_on'], 'start_time' => ['required', 'date_format:H:i'], 'end_time' => ['required', 'date_format:H:i', 'after:start_time'], 'weekdays' => ['required', 'array', 'min:1', 'max:7'], 'weekdays.*' => ['integer', 'between:1,7', 'distinct'], 'note' => ['nullable', 'string', 'max:2000']]);
+        abort_if($this->access->user()->role === 'teacher' && (int) $data['teacher_id'] !== $this->access->user()->id, 403);
         abort_if(Carbon::parse($data['starts_on'])->diffInDays($data['ends_on']) > 1096, 422, 'Một lịch định kỳ tối đa 3 năm.');
         $newId = DB::transaction(function () use ($data, $id) {
             $this->timetable->lock();
             if ($id) {
                 $old = $this->access->table('timetable_recurrences')->find($id);
                 abort_unless($old, 404);
-                $this->access->classAccess($old->class_id, true);
+                abort_unless($this->access->user()->role === 'admin' || $old->teacher_id === $this->access->user()->id, 404);
                 abort_if($data['starts_on'] < now()->toDateString() || $data['starts_on'] < $old->starts_on, 422, 'Chọn ngày áp dụng từ hôm nay; lịch sử cũ được giữ nguyên.');
             }
             $candidate = (object) [...$data, 'room' => $data['room'] ?? null, 'note' => $data['note'] ?? null, 'weekdays' => json_encode($data['weekdays'])];
@@ -51,7 +51,8 @@ class TimetableController extends Controller
                     $this->access->table('lessons')->where('id', $lesson->id)->update($recorded ? ['is_exception' => true] : ['status' => 'cancelled', 'is_exception' => true]);
                 }
             }
-            $newId = $this->access->table('timetable_recurrences')->insertGetId([...$data, 'weekdays' => json_encode($data['weekdays']), 'created_at' => now(), 'updated_at' => now()]);
+            $newId = $this->access->table('timetable_recurrences')->insertGetId([...$data, 'weekdays' => json_encode($data['weekdays']), 'student_ids' => json_encode(array_map('intval', $data['student_ids'])), 'created_at' => now(), 'updated_at' => now()]);
+            $this->access->connectStudents($data['teacher_id'], $data['student_ids']);
             $this->access->audit($id ? 'recurrence_replaced' : 'recurrence_created', 'timetable_recurrence', $newId, $id ? $old : null, $data);
 
             return $newId;

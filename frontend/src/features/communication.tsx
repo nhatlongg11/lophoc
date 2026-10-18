@@ -1,3 +1,4 @@
+import { StudentPicker } from '../components/StudentPicker'
 import { StudentMessages } from "./student-messages";
 import { useEffect, useState } from "react";
 import { api } from "../api";
@@ -11,149 +12,16 @@ import {
   displayDate,
   useResource,
   type Notify,
-  type SchoolClass,
   type User,
 } from "../components/ui";
 
-type Announcement = {
-  id: number;
-  title: string;
-  body: string;
-  created_at: string;
-  class_id?: number;
-};
-export function Communication({
-  user,
-  notify,
-}: {
-  user: User;
-  notify: Notify;
-}) {
-  const [tab, setTab] = useState("announcements"),
-    [busy, setBusy] = useState(false);
-  const announcements = useResource<Announcement[]>("/announcements");
-  const { data: classes } = useResource<SchoolClass[]>(
-    ["teacher", "admin"].includes(user.role) ? "/classes" : null,
-  );
-  const [title, setTitle] = useState(""),
-    [notice, setNotice] = useState(""),
-    [classId, setClassId] = useState("");
-  return (
-    <>
-      <PageHead
-        title="Kết nối & đồng hành"
-        description="Thông tin lớp học và trao đổi riêng giữa thầy cô, gia đình."
-      />
-      <div className="segment admin-tabs">
-        <button
-          className={tab === "announcements" ? "selected" : ""}
-          onClick={() => setTab("announcements")}
-        >
-          Bảng tin
-        </button>
-        {user.role !== "student" && (
-          <button
-            className={tab === "messages" ? "selected" : ""}
-            onClick={() => setTab("messages")}
-          >
-            Tin nhắn riêng
-          </button>
-        )}
-      </div>
-      {tab === "announcements" ? (
-        <div className="two-col">
-          <Panel title="Bảng tin lớp học">
-            <ErrorBox message={announcements.error} />
-            {announcements.loading ? (
-              <Skeleton />
-            ) : announcements.data?.length ? (
-              announcements.data.map((a) => (
-                <article className="announcement" key={a.id}>
-                  <span className="eyebrow">
-                    {displayDate(a.created_at)} ·{" "}
-                    {a.class_id ? "Lớp học" : "Toàn trường"}
-                  </span>
-                  <h3>{a.title}</h3>
-                  <p>{a.body}</p>
-                </article>
-              ))
-            ) : (
-              <Empty>Chưa có thông báo.</Empty>
-            )}
-          </Panel>
-          {["teacher", "admin"].includes(user.role) && (
-            <Panel title="Gửi thông báo">
-              <form
-                className="stack-form"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  setBusy(true);
-                  try {
-                    await api("/announcements", {
-                      method: "POST",
-                      body: {
-                        title,
-                        body: notice,
-                        class_id: classId ? Number(classId) : null,
-                      },
-                    });
-                    setTitle("");
-                    setNotice("");
-                    announcements.reload();
-                    notify("Đã gửi thông báo.");
-                  } catch (err) {
-                    notify((err as Error).message, true);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <label>
-                  Phạm vi
-                  <select
-                    required={user.role !== "admin"}
-                    value={classId}
-                    onChange={(e) => setClassId(e.target.value)}
-                  >
-                    <option value="">
-                      {user.role === "admin" ? "Toàn tổ chức" : "Chọn lớp"}
-                    </option>
-                    {classes?.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Tiêu đề
-                  <input
-                    required
-                    maxLength={180}
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Nội dung
-                  <textarea
-                    required
-                    maxLength={10000}
-                    rows={6}
-                    value={notice}
-                    onChange={(e) => setNotice(e.target.value)}
-                  />
-                </label>
-                <Button disabled={busy}>Gửi thông báo</Button>
-              </form>
-            </Panel>
-          )}
-        </div>
-      ) : (
-        <StudentMessages user={user} notify={notify} />
-      )}
-    </>
-  );
+type Announcement = { id: number; title: string; body: string; created_at: string; student_ids: number[] }
+export function Communication({ user, notify }: { user: User; notify: Notify }) {
+  const [tab, setTab] = useState('announcements'), [busy, setBusy] = useState(false)
+  const announcements = useResource<Announcement[]>('/announcements')
+  const [title, setTitle] = useState(''), [notice, setNotice] = useState(''), [studentIds, setStudentIds] = useState<number[]>([])
+  return <><PageHead title="Kết nối & đồng hành" description="Thông báo và trao đổi riêng giữa thầy cô, gia đình."/><div className="segment admin-tabs"><button className={tab === 'announcements' ? 'selected' : ''} onClick={() => setTab('announcements')}>Bảng tin</button>{user.role !== 'student' && <button className={tab === 'messages' ? 'selected' : ''} onClick={() => setTab('messages')}>Tin nhắn riêng</button>}</div>
+    {tab === 'announcements' ? <div className="two-col"><Panel title="Bảng tin"><ErrorBox message={announcements.error}/>{announcements.loading ? <Skeleton/> : announcements.data?.length ? announcements.data.map(item => <article className="announcement" key={item.id}><span className="eyebrow">{displayDate(item.created_at)}</span><h3>{item.title}</h3><p>{item.body}</p></article>) : <Empty>Chưa có thông báo.</Empty>}</Panel>{['teacher', 'admin'].includes(user.role) && <Panel title="Gửi thông báo"><form className="stack-form" onSubmit={async event => { event.preventDefault(); setBusy(true); try { await api('/announcements', { method: 'POST', body: { title, body: notice, student_ids: studentIds } }); setTitle(''); setNotice(''); setStudentIds([]); announcements.reload(); notify('Đã gửi thông báo.'); } catch (error) { notify((error as Error).message, true) } finally { setBusy(false) } }}><StudentPicker value={studentIds} onChange={setStudentIds} label="Học sinh nhận thông báo"/><label>Tiêu đề<input required maxLength={180} value={title} onChange={event => setTitle(event.target.value)}/></label><label>Nội dung<textarea required maxLength={10000} value={notice} onChange={event => setNotice(event.target.value)}/></label><Button disabled={busy || !studentIds.length}>Gửi thông báo</Button></form></Panel>}</div> : <StudentMessages user={user} notify={notify}/>}</>
 }
 
 type Organization = {
@@ -161,7 +29,6 @@ type Organization = {
   plan: string;
   subscription_status: string;
   leaderboard_enabled: boolean;
-  max_classes: number;
   max_students: number;
   max_teachers: number;
   storage_limit_bytes: number;
@@ -171,13 +38,12 @@ type OrgResponse = {
   usage: {
     students: number;
     teachers: number;
-    classes: number;
     storage_bytes: number;
   };
   requests: { id: number; plan: string; status: string; created_at: string }[];
   plans: Record<
     string,
-    { name: string; classes: number; students: number; teachers: number }
+    { name: string; students: number; teachers: number }
   >;
 };
 export function OrganizationSettings({ notify }: { notify: Notify }) {
@@ -218,13 +84,7 @@ export function OrganizationSettings({ notify }: { notify: Notify }) {
                   {data.usage.students}/{data.organization.max_students}
                 </strong>
               </article>
-              <article className="metric sky">
-                <small>Lớp học hoạt động</small>
-                <strong>
-                  {data.usage.classes}/{data.organization.max_classes}
-                </strong>
-              </article>
-              <article className="metric peach">
+<article className="metric peach">
                 <small>Giáo viên hoạt động</small>
                 <strong>
                   {data.usage.teachers}/{data.organization.max_teachers}
@@ -269,7 +129,7 @@ export function OrganizationSettings({ notify }: { notify: Notify }) {
                       checked={ranking}
                       onChange={(e) => setRanking(e.target.checked)}
                     />{" "}
-                    Bật bảng thành tích riêng trong lớp (dùng biệt danh)
+                    Bật bảng thành tích của tổ chức (dùng biệt danh)
                   </label>
                   <p className="muted">
                     Gói hiện tại:{" "}
@@ -372,7 +232,7 @@ export function OrganizationSettings({ notify }: { notify: Notify }) {
                 <article className="panel" key={key}>
                   <h2>{p.name}</h2>
                   <p>
-                    {p.students} học sinh · {p.classes} lớp · {p.teachers} giáo
+                    {p.students} học sinh · {p.teachers} giáo
                     viên
                   </p>
                   <Button

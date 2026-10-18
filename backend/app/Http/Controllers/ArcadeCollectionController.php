@@ -31,7 +31,7 @@ class ArcadeCollectionController extends Controller
             $expected = 0;
             $completed = 0;
             foreach ($assigned as $assignment) {
-                $members = $assignment->student_ids ? json_decode($assignment->student_ids, true) : $this->access->table('class_memberships')->where('class_id', $assignment->class_id)->pluck('student_id')->all();
+                $members = json_decode($assignment->student_ids, true) ?: [];
                 $expected += count($members);
                 $completed += $this->access->table('arcade_sessions')->where('assignment_id', $assignment->id)->whereIn('student_id', $members)->where('status', 'completed')->where('is_preview', false)->distinct()->count('student_id');
             }
@@ -76,8 +76,7 @@ class ArcadeCollectionController extends Controller
     public function assign(Request $request, int $id): JsonResponse
     {
         $this->owned($id);
-        $data = $request->validate(['class_id' => ['required', 'integer'], 'allowed_attempts' => ['required', 'integer', 'between:1,100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['nullable', 'date']]);
-        $this->access->classAccess($data['class_id'], true);
+        $data = $request->validate([...$this->access->recipientRules(), 'allowed_attempts' => ['required', 'integer', 'between:1,100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['nullable', 'date']]);
         $assignments = DB::transaction(function () use ($id, $data) {
             $this->access->table('arcade_collections')->where('id', $id)->lockForUpdate()->first();
             $ids = [];

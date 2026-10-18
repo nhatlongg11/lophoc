@@ -24,7 +24,7 @@ test.beforeAll(async ({ request }) => {
   expect((await request.post('/api/login', { headers: { 'X-CSRF-TOKEN': csrf }, data: { email: 'giaovien@lophoc.local', password: 'MatKhau123!' } })).ok()).toBeTruthy()
   csrf = (await (await request.get('/api/csrf')).json()).token
   const subjects = await (await request.get('/api/subjects')).json()
-  const classes = await (await request.get('/api/classes')).json()
+  const students = await (await request.get('/api/users?role=student')).json()
   const templates = await (await request.get('/api/arcade/templates')).json()
   const template = templates.find((t: { id: string }) => t.id === 'unit').content as RoundContent
   for (const activity of template.activities) {
@@ -35,7 +35,7 @@ test.beforeAll(async ({ request }) => {
     const round = (await saved.json()).id
     expect((await request.post('/api/arcade/rounds/' + round + '/preview', { headers: { 'X-CSRF-TOKEN': csrf } })).ok()).toBeTruthy()
     expect((await request.post('/api/arcade/rounds/' + round + '/publish', { headers: { 'X-CSRF-TOKEN': csrf } })).ok()).toBeTruthy()
-    const assigned = await request.post('/api/arcade/rounds/' + round + '/assign', { headers: { 'X-CSRF-TOKEN': csrf }, data: { class_id: classes.find((c: { name: string }) => c.name === '5A · Arcade mẫu').id, allowed_attempts: 50 } })
+    const assigned = await request.post('/api/arcade/rounds/' + round + '/assign', { headers: { 'X-CSRF-TOKEN': csrf }, data: { student_ids: [students.find((s: { email: string }) => s.email === 'hocsinh5@eduquest.local').id], allowed_attempts: 50 } })
     expect(assigned.status()).toBe(201)
     fixtures[activity.engine] = { round, assignment: (await assigned.json()).id, content: activity, title }
   }
@@ -170,7 +170,7 @@ test('teacher creates, imports, previews, publishes, assigns, duplicates and arc
   const title = 'E2E Thiết kế vòng học ' + Date.now()
   await page.getByLabel('Tên vòng học', { exact: true }).fill(title)
   await page.getByLabel('Mục tiêu của vòng học').fill('Luyện tập từ vựng học đường, xếp câu và tự ôn lại những khái niệm cần luyện.')
-  await page.getByRole('combobox', { name: 'Ngân hàng câu hỏi', exact: true }).selectOption({ label: '[Mẫu lớp 5] Nội dung tương thích Arcade' })
+  await page.getByRole('combobox', { name: 'Ngân hàng câu hỏi', exact: true }).selectOption({ label: '[Mẫu khối 5] Nội dung tương thích Arcade' })
   await page.getByRole('checkbox', { name: 'Thử thách nhanh', exact: true }).check()
   await page.getByRole('button', { name: 'Phân tích & tạo chặng học' }).click()
   await expect(page.getByText('1 chặng tương thích.', { exact: false })).toBeVisible()
@@ -187,10 +187,10 @@ test('teacher creates, imports, previews, publishes, assigns, duplicates and arc
   await page.getByRole('dialog').getByRole('button', { name: 'Lưu & rời vòng học', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Phát hành phiên bản', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Phát hành phiên bản', exact: true }).click()
-  await expect(page.getByText('Đã phát hành. Thầy cô có thể giao phiên bản này cho lớp.', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Giao cho lớp', exact: true }).click()
-  const assignment = page.getByRole('dialog', { name: 'Giao vòng học cho lớp' })
-  await assignment.getByLabel('Lớp được giao').selectOption({ label: '5A · Arcade mẫu' })
+  await expect(page.getByText('Đã phát hành. Thầy cô có thể giao phiên bản này cho học sinh.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Giao cho học sinh', exact: true }).click()
+  const assignment = page.getByRole('dialog', { name: 'Giao vòng học cho học sinh' })
+  await assignment.getByRole('checkbox', { name: /hocsinh5@eduquest.local/ }).check()
   await assignment.getByRole('button', { name: 'Xác nhận giao vòng học', exact: true }).click()
   await expect(assignment).toBeHidden()
   const roundId = Number(page.url().split('/').at(-1))

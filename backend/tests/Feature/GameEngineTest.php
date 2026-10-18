@@ -25,11 +25,11 @@ class GameEngineTest extends TestCase
     {
         $year = DB::table('school_years')->insertGetId(['name' => 'Year', 'starts_on' => '2026-01-01', 'ends_on' => '2026-12-31']);
         $subject = DB::table('subjects')->insertGetId(['name' => 'English']);
-        $class = DB::table('school_classes')->insertGetId(['name' => 'A', 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         $this->withHeaders($this->headers($teacher));
 
-        return $this->postJson('/api/games', ['title' => 'Practice', 'class_id' => $class, 'type' => $type, 'time_limit_seconds' => 60, 'allowed_attempts' => 2, 'questions' => [$question]])->assertCreated()->json('id');
+        return $this->postJson('/api/games', ['title' => 'Practice', 'student_ids' => [$studentId], 'type' => $type, 'time_limit_seconds' => 60, 'allowed_attempts' => 2, 'questions' => [$question]])->assertCreated()->json('id');
     }
 
     #[DataProvider('modes')]

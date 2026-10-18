@@ -22,12 +22,12 @@ class ArcadeSessions
     {
         $id = $this->access->user()->id;
 
-        return $this->access->table('arcade_assignments')->whereIn('class_id', $this->access->classIds())->whereNull('revoked_at')->orderByDesc('id')->get()->filter(fn ($a) => $a->student_ids === null || in_array($id, json_decode($a->student_ids, true), true))->values()->all();
+        return $this->access->table('arcade_assignments')->whereJsonContains('student_ids', $id)->whereNull('revoked_at')->orderByDesc('id')->get()->all();
     }
 
     private function eligibleAssignment(object $assignment): void
     {
-        abort_unless(! $assignment->revoked_at && in_array($assignment->class_id, $this->access->classIds(), true) && ($assignment->student_ids === null || in_array($this->access->user()->id, json_decode($assignment->student_ids, true), true)), 404);
+        abort_unless(! $assignment->revoked_at && in_array($this->access->user()->id, json_decode($assignment->student_ids, true) ?: [], true), 404);
         abort_if($assignment->starts_at && now()->lessThan($assignment->starts_at), 422, 'Vòng học chưa đến thời gian mở.');
         abort_if($assignment->due_at && now()->greaterThanOrEqualTo($assignment->due_at), 422, 'Vòng học đã hết hạn. Phiên cũ và kết quả vẫn có trong lịch sử.');
     }

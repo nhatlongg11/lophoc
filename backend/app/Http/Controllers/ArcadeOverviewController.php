@@ -17,7 +17,7 @@ class ArcadeOverviewController extends Controller
     {
         $id = $this->access->user()->id;
 
-        return $this->access->table('arcade_assignments')->join('arcade_rounds', 'arcade_assignments.round_id', '=', 'arcade_rounds.id')->join('arcade_versions', 'arcade_assignments.version_id', '=', 'arcade_versions.id')->join('subjects', 'arcade_versions.subject_id', '=', 'subjects.id')->join('school_classes', 'arcade_assignments.class_id', '=', 'school_classes.id')->whereIn('arcade_assignments.class_id', $this->access->classIds())->whereNull('arcade_assignments.revoked_at')->whereNull('arcade_rounds.archived_at')->where(fn ($q) => $q->whereNull('arcade_assignments.student_ids')->orWhereJsonContains('arcade_assignments.student_ids', $id));
+        return $this->access->table('arcade_assignments')->join('arcade_rounds', 'arcade_assignments.round_id', '=', 'arcade_rounds.id')->join('arcade_versions', 'arcade_assignments.version_id', '=', 'arcade_versions.id')->join('subjects', 'arcade_versions.subject_id', '=', 'subjects.id')->whereNull('arcade_assignments.revoked_at')->whereNull('arcade_rounds.archived_at')->whereJsonContains('arcade_assignments.student_ids', $id);
     }
 
     public function rounds(Request $request): JsonResponse
@@ -35,7 +35,7 @@ class ArcadeOverviewController extends Controller
         } elseif (($data['completion'] ?? '') === 'not_started') {
             $query->whereNotExists($started);
         }
-        $rows = $query->select('arcade_assignments.*', 'arcade_versions.title', 'arcade_versions.grade', 'arcade_versions.topic', 'arcade_versions.subject_id', 'arcade_versions.revision', 'arcade_versions.difficulty', 'arcade_versions.content', 'subjects.name as subject_name', 'school_classes.name as class_name', 'arcade_rounds.is_demo')->orderByDesc('arcade_assignments.id')->paginate(12);
+        $rows = $query->select('arcade_assignments.*', 'arcade_versions.title', 'arcade_versions.grade', 'arcade_versions.topic', 'arcade_versions.subject_id', 'arcade_versions.revision', 'arcade_versions.difficulty', 'arcade_versions.content', 'subjects.name as subject_name', 'arcade_rounds.is_demo')->orderByDesc('arcade_assignments.id')->paginate(12);
         $assignmentIds = collect($rows->items())->pluck('id');
         $sessions = $this->access->table('arcade_sessions')->where('student_id', $this->access->user()->id)->whereIn('assignment_id', $assignmentIds)->where('is_preview', false)->orderByDesc('id')->get()->groupBy('assignment_id');
         foreach ($rows->items() as $row) {
@@ -126,14 +126,13 @@ class ArcadeOverviewController extends Controller
     public function leaderboard(Request $request): JsonResponse
     {
         $this->access->requireRole('student', 'teacher', 'admin');
-        $data = $request->validate(['class_id' => ['required', 'integer'], 'period' => ['required', 'in:week,month,all'], 'topic' => ['nullable', 'string', 'max:100']]);
-        $this->access->classAccess($data['class_id']);
+        $data = $request->validate(['period' => ['required', 'in:week,month,all'], 'topic' => ['nullable', 'string', 'max:100']]);
         $organization = DB::table('organizations')->find($this->access->user()->organization_id);
         if (! $organization->leaderboard_enabled) {
             return response()->json(['enabled' => false, 'rows' => []]);
         }
-        $members = $this->access->table('class_memberships')->where('class_id', $data['class_id'])->pluck('student_id');
-        $query = $this->access->table('arcade_sessions')->join('arcade_assignments', 'arcade_sessions.assignment_id', '=', 'arcade_assignments.id')->join('arcade_versions', 'arcade_sessions.version_id', '=', 'arcade_versions.id')->where('arcade_assignments.class_id', $data['class_id'])->whereIn('arcade_sessions.student_id', $members)->where('arcade_sessions.status', 'completed')->where('arcade_sessions.is_preview', false)->when($data['period'] !== 'all', fn ($q) => $q->where('arcade_sessions.completed_at', '>=', $data['period'] === 'month' ? now()->startOfMonth() : now()->startOfWeek()))->when($data['topic'] ?? null, fn ($q, $topic) => $q->where('arcade_versions.topic', $topic))->groupBy('arcade_sessions.student_id', 'arcade_sessions.round_id')->selectRaw('arcade_sessions.student_id, arcade_sessions.round_id, MAX(final_accuracy) as mastery, MAX(final_stars) as best_stars');
+        $members = $this->access->table('users')->where('role', 'student')->pluck('id');
+        $query = $this->access->table('arcade_sessions')->join('arcade_assignments', 'arcade_sessions.assignment_id', '=', 'arcade_assignments.id')->join('arcade_versions', 'arcade_sessions.version_id', '=', 'arcade_versions.id')->whereIn('arcade_sessions.student_id', $members)->where('arcade_sessions.status', 'completed')->where('arcade_sessions.is_preview', false)->when($data['period'] !== 'all', fn ($q) => $q->where('arcade_sessions.completed_at', '>=', $data['period'] === 'month' ? now()->startOfMonth() : now()->startOfWeek()))->when($data['topic'] ?? null, fn ($q, $topic) => $q->where('arcade_versions.topic', $topic))->groupBy('arcade_sessions.student_id', 'arcade_sessions.round_id')->selectRaw('arcade_sessions.student_id, arcade_sessions.round_id, MAX(final_accuracy) as mastery, MAX(final_stars) as best_stars');
         $rows = DB::query()->fromSub($query, 'personal_bests')->groupBy('student_id')->selectRaw('student_id, ROUND(AVG(mastery), 2) as accuracy, SUM(best_stars) as stars')->orderByDesc('accuracy')->orderByDesc('stars')->orderBy('student_id')->limit(50)->get()->map(fn ($r) => ['alias' => 'Nhà khám phá '.substr(hash_hmac('sha256', (string) $r->student_id, config('app.key')), 0, 6), 'accuracy' => $r->accuracy, 'stars' => $r->stars, 'is_me' => $r->student_id === $this->access->user()->id]);
 
         return response()->json(['enabled' => true, 'rows' => $rows]);
@@ -142,24 +141,22 @@ class ArcadeOverviewController extends Controller
     private function reportData(Request $request, int $page = 1): array
     {
         $this->access->requireRole('teacher', 'admin');
-        $data = $request->validate(['class_id' => ['nullable', 'integer'], 'round_id' => ['nullable', 'integer'], 'subject_id' => ['nullable', 'integer'], 'topic' => ['nullable', 'string', 'max:100'], 'engine' => ['nullable', 'in:matching,word_builder,quick_challenge,memory_flip,fill_gap,word_defense'], 'from' => ['nullable', 'date'], 'to' => ['nullable', 'date'], 'page' => ['nullable', 'integer', 'min:1']]);
-        if (! empty($data['class_id'])) {
-            $this->access->classAccess($data['class_id']);
-        }
+        $data = $request->validate(['student_id' => ['nullable', 'integer'], 'round_id' => ['nullable', 'integer'], 'subject_id' => ['nullable', 'integer'], 'topic' => ['nullable', 'string', 'max:100'], 'engine' => ['nullable', 'in:matching,word_builder,quick_challenge,memory_flip,fill_gap,word_defense'], 'from' => ['nullable', 'date'], 'to' => ['nullable', 'date'], 'page' => ['nullable', 'integer', 'min:1']]);
         if (! empty($data['round_id'])) {
             $this->sessions->ownedRound($data['round_id']);
         }
         $from = $request->date('from')?->startOfDay() ?? now()->subDays(30)->startOfDay();
         $to = $request->date('to')?->endOfDay() ?? now()->endOfDay();
         abort_if($from->greaterThan($to), 422, 'Ngày bắt đầu phải trước ngày kết thúc.');
-        $assignments = $this->access->table('arcade_assignments')->join('arcade_rounds', 'arcade_assignments.round_id', '=', 'arcade_rounds.id')->join('arcade_versions', 'arcade_assignments.version_id', '=', 'arcade_versions.id')->whereIn('arcade_assignments.class_id', $this->access->classIds())->when($this->access->user()->role === 'teacher', fn ($q) => $q->where('arcade_rounds.teacher_id', $this->access->user()->id))->when($data['class_id'] ?? null, fn ($q, $id) => $q->where('arcade_assignments.class_id', $id))->when($data['round_id'] ?? null, fn ($q, $id) => $q->where('arcade_assignments.round_id', $id))->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('arcade_versions.subject_id', $id))->whereNull('arcade_assignments.revoked_at')->select('arcade_assignments.*')->get();
-        $members = $this->access->table('class_memberships')->whereIn('class_id', $assignments->pluck('class_id'))->get()->groupBy('class_id');
+        $assignments = $this->access->table('arcade_assignments')->join('arcade_rounds', 'arcade_assignments.round_id', '=', 'arcade_rounds.id')->join('arcade_versions', 'arcade_assignments.version_id', '=', 'arcade_versions.id')->when($this->access->user()->role === 'teacher', fn ($q) => $q->where('arcade_rounds.teacher_id', $this->access->user()->id))->when($data['round_id'] ?? null, fn ($q, $id) => $q->where('arcade_assignments.round_id', $id))->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('arcade_versions.subject_id', $id))->whereNull('arcade_assignments.revoked_at')->select('arcade_assignments.*')->get();
         $eligible = [];
+        if (! empty($data['student_id'])) {
+            abort_unless(in_array((int) $data['student_id'], $this->access->studentIds(), true), 404);
+        }
         foreach ($assignments as $assignment) {
-            $specific = $assignment->student_ids ? json_decode($assignment->student_ids, true) : null;
-            foreach ($members->get($assignment->class_id, collect()) as $member) {
-                if ($specific === null || in_array($member->student_id, $specific, true)) {
-                    $eligible[$member->student_id][] = $assignment->id;
+            foreach (json_decode($assignment->student_ids, true) ?: [] as $student) {
+                if (empty($data['student_id']) || $student === (int) $data['student_id']) {
+                    $eligible[$student][] = $assignment->id;
                 }
             }
         }

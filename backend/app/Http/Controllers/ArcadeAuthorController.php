@@ -109,15 +109,13 @@ class ArcadeAuthorController extends Controller
             $this->sessions->ownedRound($id);
             $round = $this->access->table('arcade_rounds')->where('id', $id)->lockForUpdate()->first();
             abort_unless($round->published_version_id && ! $round->archived_at, 422, 'Phát hành vòng học trước khi giao.');
-            $data = $request->validate(['class_id' => ['required', 'integer'], 'student_ids' => ['nullable', 'array', 'min:1', 'max:1000'], 'student_ids.*' => ['integer', 'distinct'], 'allowed_attempts' => ['required', 'integer', 'between:1,100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['nullable', 'date']]);
+            $data = $request->validate([...$this->access->recipientRules(), 'allowed_attempts' => ['required', 'integer', 'between:1,100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['nullable', 'date']]);
             abort_if(! empty($data['starts_at']) && ! empty($data['due_at']) && Carbon::parse($data['due_at'])->lessThanOrEqualTo($data['starts_at']), 422, 'Hạn hoàn thành phải sau thời gian mở.');
-            $this->access->classAccess($data['class_id'], true);
-            $members = $this->access->table('class_memberships')->where('class_id', $data['class_id'])->pluck('student_id')->all();
-            abort_unless(! isset($data['student_ids']) || ! array_diff($data['student_ids'], $members), 422, 'Chỉ được giao cho học sinh hiện thuộc lớp.');
-            $assignment = $this->access->table('arcade_assignments')->insertGetId(['round_id' => $id, 'version_id' => $round->published_version_id, 'class_id' => $data['class_id'], 'assigned_by' => $this->access->user()->id, 'student_ids' => isset($data['student_ids']) ? json_encode($data['student_ids']) : null, 'allowed_attempts' => $data['allowed_attempts'], 'starts_at' => empty($data['starts_at']) ? null : Carbon::parse($data['starts_at'])->setTimezone(config('app.timezone'))->toDateTimeString(), 'due_at' => empty($data['due_at']) ? null : Carbon::parse($data['due_at'])->setTimezone(config('app.timezone'))->toDateTimeString(), 'created_at' => now(), 'updated_at' => now()]);
+            $this->access->connectStudents($round->teacher_id, $data['student_ids']);
+            $assignment = $this->access->table('arcade_assignments')->insertGetId(['round_id' => $id, 'version_id' => $round->published_version_id, 'assigned_by' => $this->access->user()->id, 'student_ids' => json_encode(array_map('intval', $data['student_ids'])), 'allowed_attempts' => $data['allowed_attempts'], 'starts_at' => empty($data['starts_at']) ? null : Carbon::parse($data['starts_at'])->setTimezone(config('app.timezone'))->toDateTimeString(), 'due_at' => empty($data['due_at']) ? null : Carbon::parse($data['due_at'])->setTimezone(config('app.timezone'))->toDateTimeString(), 'created_at' => now(), 'updated_at' => now()]);
             $this->access->table('arcade_rounds')->where('id', $id)->update(['status' => 'assigned', 'updated_at' => now()]);
             $this->history($id, $round->published_version_id, 'assigned');
-            $this->access->notify($data['student_ids'] ?? $members, 'Vòng học mới', 'Có vòng học mới trong Learning Arcade: '.$round->title, 'arcade');
+            $this->access->notify($data['student_ids'], 'Vòng học mới', 'Có vòng học mới trong Learning Arcade: '.$round->title, 'arcade');
             $this->access->audit('assigned', 'arcade_round', $id, null, ['assignment_id' => $assignment]);
 
             return response()->json(['id' => $assignment], 201);
@@ -129,7 +127,6 @@ class ArcadeAuthorController extends Controller
         $assignment = $this->access->table('arcade_assignments')->find($id);
         abort_unless($assignment, 404);
         $this->sessions->ownedRound($assignment->round_id);
-        $this->access->classAccess($assignment->class_id, true);
         $this->access->table('arcade_assignments')->where('id', $id)->update(['revoked_at' => now(), 'updated_at' => now()]);
         $this->access->audit('revoked', 'arcade_assignment', $id);
 

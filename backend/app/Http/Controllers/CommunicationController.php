@@ -11,21 +11,14 @@ class CommunicationController extends Controller
 {
     public function __construct(private LearningAccess $access) {}
 
-    private function parentClasses(): array
-    {
-        $children = $this->access->table('parent_student_links')->where('parent_id', $this->access->user()->id)->pluck('student_id');
-
-        return $this->access->table('class_memberships')->whereIn('student_id', $children)->pluck('class_id')->unique()->all();
-    }
-
     public function contacts(): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin', 'parent');
         $user = $this->access->user();
         if ($user->role === 'parent') {
-            $ids = $this->access->table('school_classes')->whereIn('id', $this->parentClasses())->pluck('teacher_id')->concat($this->access->table('users')->where('role', 'admin')->pluck('id'));
+            $ids = $this->access->table('teacher_students')->whereIn('student_id', $this->access->studentIds())->pluck('teacher_id')->concat($this->access->table('users')->where('role', 'admin')->pluck('id'));
         } else {
-            $students = $this->access->table('class_memberships')->whereIn('class_id', $this->access->classIds())->pluck('student_id');
+            $students = $this->access->studentIds();
             $ids = $this->access->table('parent_student_links')->whereIn('student_id', $students)->pluck('parent_id');
         }
 
@@ -115,25 +108,35 @@ class CommunicationController extends Controller
     public function announcements(): JsonResponse
     {
         $role = $this->access->user()->role;
-        abort_if(in_array($role, ['family', 'super_admin'], true), 403);
-        $ids = $role === 'parent' ? $this->parentClasses() : $this->access->classIds();
+        $this->access->requireRole('teacher', 'admin', 'parent', 'student');
+        $query = $this->access->table('announcements');
+        if ($role === 'teacher') {
+            $query->where('author_id', $this->access->user()->id);
+        } elseif ($role !== 'admin') {
+            $students = $this->access->studentIds();
+            $query->where(function ($q) use ($students) {
+                $q->whereRaw('1 = 0');
+                foreach ($students as $student) {
+                    $q->orWhereJsonContains('student_ids', $student);
+                }
+            });
+        }
 
-        return response()->json($this->access->table('announcements')->where(fn ($q) => $q->whereNull('class_id')->orWhereIn('class_id', $ids))->orderByDesc('id')->limit(100)->get());
+        return response()->json($query->orderByDesc('id')->limit(100)->get()->map(function ($row) {
+            $row->student_ids = json_decode($row->student_ids, true) ?: [];
+
+            return $row;
+        }));
     }
 
     public function publish(Request $request): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'body' => ['required', 'string', 'max:10000'], 'class_id' => ['nullable', 'integer']]);
-        if (! empty($data['class_id'])) {
-            $this->access->classAccess((int) $data['class_id'], true);
-        } else {
-            $this->access->requireRole('admin');
-        }
+        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'body' => ['required', 'string', 'max:10000'], ...$this->access->recipientRules()]);
         $id = DB::transaction(function () use ($data) {
-            $id = $this->access->table('announcements')->insertGetId([...$data, 'author_id' => $this->access->user()->id, 'created_at' => now(), 'updated_at' => now()]);
-            $ids = ! empty($data['class_id']) ? $this->access->table('class_memberships')->where('class_id', $data['class_id'])->pluck('student_id')->all() : $this->access->table('users')->pluck('id')->all();
-            $this->access->notify($ids, 'Thông báo mới', $data['title'], 'announcement');
+            $id = $this->access->table('announcements')->insertGetId([...$data, 'student_ids' => json_encode(array_map('intval', $data['student_ids'])), 'author_id' => $this->access->user()->id, 'created_at' => now(), 'updated_at' => now()]);
+            $this->access->connectStudents($this->access->user()->id, $data['student_ids']);
+            $this->access->notify($data['student_ids'], 'Thông báo mới', $data['title'], 'announcement');
             $this->access->audit('published', 'announcement', $id);
 
             return $id;

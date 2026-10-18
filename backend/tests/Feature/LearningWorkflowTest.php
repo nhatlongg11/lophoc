@@ -19,14 +19,12 @@ class LearningWorkflowTest extends TestCase
         return ['Authorization' => 'Bearer '.$token];
     }
 
-    private function classFor(User $teacher, User $student): array
+    private function recipientFor(User $teacher, User $student): array
     {
-        $yearId = DB::table('school_years')->insertGetId(['name' => '2026–2027', 'starts_on' => '2026-08-01', 'ends_on' => '2027-05-31', 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
-        $subjectId = DB::table('subjects')->insertGetId(['name' => 'Toán học', 'color' => '#397c78', 'created_at' => now(), 'updated_at' => now()]);
-        $classId = DB::table('school_classes')->insertGetId(['name' => '8A2', 'subject_id' => $subjectId, 'teacher_id' => $teacher->id, 'school_year_id' => $yearId, 'room' => '205', 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('class_memberships')->insert(['class_id' => $classId, 'student_id' => $student->id, 'created_at' => now(), 'updated_at' => now()]);
+        $subjectId = DB::table('subjects')->insertGetId(['organization_id' => $teacher->organization_id, 'name' => 'Toán học', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('teacher_students')->insertOrIgnore(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
 
-        return [$classId, $subjectId];
+        return [$student->id, $subjectId];
     }
 
     public function test_assignment_submission_grading_and_role_boundaries(): void
@@ -34,12 +32,12 @@ class LearningWorkflowTest extends TestCase
         $teacher = User::factory()->create(['role' => 'teacher']);
         $otherTeacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        [$classId] = $this->classFor($teacher, $student);
+        [$studentId] = $this->recipientFor($teacher, $student);
 
         $this->getJson('/api/assignments')->assertUnauthorized();
         $this->withHeaders($this->headersFor($student))->postJson('/api/assignments', [])->assertForbidden();
 
-        $payload = ['title' => 'Bài đại số', 'instructions' => 'Giải phương trình.', 'max_score' => 10, 'starts_at' => now()->subMinute()->toDateTimeString(), 'due_at' => now()->addDays(2)->toDateTimeString(), 'submission_type' => 'text', 'class_ids' => [$classId], 'published' => true];
+        $payload = ['title' => 'Bài đại số', 'instructions' => 'Giải phương trình.', 'max_score' => 10, 'starts_at' => now()->subMinute()->toDateTimeString(), 'due_at' => now()->addDays(2)->toDateTimeString(), 'submission_type' => 'text', 'student_ids' => [$studentId], 'published' => true];
         $created = $this->withHeaders($this->headersFor($teacher))->postJson('/api/assignments', $payload)->assertCreated()->json();
         $assignmentId = $created['id'];
         $this->assertDatabaseHas('notifications', ['user_id' => $student->id, 'kind' => 'assignment']);
@@ -57,9 +55,9 @@ class LearningWorkflowTest extends TestCase
     {
         $teacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        [$classId, $subjectId] = $this->classFor($teacher, $student);
+        [$studentId, $subjectId] = $this->recipientFor($teacher, $student);
         $this->withHeaders($this->headersFor($teacher));
-        $lesson = ['class_id' => $classId, 'subject_id' => $subjectId, 'teacher_id' => $teacher->id, 'title' => 'Tiết Toán', 'room' => '205', 'period' => 1, 'starts_at' => now()->addDay()->setTime(9, 0)->toDateTimeString(), 'ends_at' => now()->addDay()->setTime(9, 45)->toDateTimeString(), 'status' => 'scheduled'];
+        $lesson = ['student_ids' => [$studentId], 'subject_id' => $subjectId, 'teacher_id' => $teacher->id, 'title' => 'Tiết Toán', 'room' => '205', 'period' => 1, 'starts_at' => now()->addDay()->setTime(9, 0)->toDateTimeString(), 'ends_at' => now()->addDay()->setTime(9, 45)->toDateTimeString(), 'status' => 'scheduled'];
         $lessonId = $this->postJson('/api/lessons', $lesson)->assertCreated()->json('id');
         $this->postJson('/api/lessons', $lesson)->assertUnprocessable()->assertJsonValidationErrors('starts_at');
         $this->getJson('/api/lessons/'.$lessonId.'/attendance')->assertOk()->assertJsonPath('students.0.status', 'present');
@@ -72,8 +70,9 @@ class LearningWorkflowTest extends TestCase
     {
         $teacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        [$classId] = $this->classFor($teacher, $student);
-        $gameId = DB::table('games')->insertGetId(['teacher_id' => $teacher->id, 'class_id' => $classId, 'title' => 'Đố vui', 'type' => 'timed', 'graded' => false, 'time_limit_seconds' => 60, 'created_at' => now(), 'updated_at' => now()]);
+        [$studentId] = $this->recipientFor($teacher, $student);
+        $gameId = DB::table('games')->insertGetId(['teacher_id' => $teacher->id, 'title' => 'Đố vui', 'type' => 'timed', 'graded' => false, 'time_limit_seconds' => 60, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('game_students')->insert(['organization_id' => 1, 'game_id' => $gameId, 'student_id' => $studentId]);
         $questionId = DB::table('questions')->insertGetId(['game_id' => $gameId, 'prompt' => '2 + 2 bằng mấy?', 'options' => json_encode(['3', '4']), 'answer' => json_encode('4'), 'topic' => 'Phép cộng', 'sort_order' => 0, 'created_at' => now(), 'updated_at' => now()]);
         $this->withHeaders($this->headersFor($student));
         $response = $this->getJson('/api/games/'.$gameId)->assertOk();
@@ -89,7 +88,7 @@ class LearningWorkflowTest extends TestCase
     {
         $teacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        [$classId, $subjectId] = $this->classFor($teacher, $student);
+        [$studentId, $subjectId] = $this->recipientFor($teacher, $student);
         $assignmentId = DB::table('assignments')->insertGetId([
             'teacher_id' => $teacher->id,
             'title' => 'Bài sắp đến hạn',
@@ -101,9 +100,8 @@ class LearningWorkflowTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-        DB::table('assignment_classes')->insert(['assignment_id' => $assignmentId, 'class_id' => $classId]);
+        DB::table('assignment_students')->insert(['organization_id' => 1, 'assignment_id' => $assignmentId, 'student_id' => $studentId]);
         $lessonId = DB::table('lessons')->insertGetId([
-            'class_id' => $classId,
             'subject_id' => $subjectId,
             'teacher_id' => $teacher->id,
             'title' => 'Tiết sắp tới',
@@ -114,6 +112,8 @@ class LearningWorkflowTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        DB::table('lesson_students')->insert(['organization_id' => 1, 'lesson_id' => $lessonId, 'student_id' => $studentId]);
+
         $this->artisan('learning:remind')->assertSuccessful();
         $this->artisan('learning:remind')->assertSuccessful();
 
@@ -122,75 +122,33 @@ class LearningWorkflowTest extends TestCase
         $this->assertDatabaseCount('notifications', 2);
     }
 
-    public function test_student_must_be_transferred_instead_of_added_to_a_second_class(): void
+    public function test_teachers_can_assign_the_same_student_directly_without_enrollment(): void
     {
-        $admin = User::factory()->create(['role' => 'admin']);
-        $oldTeacher = User::factory()->create(['role' => 'teacher']);
-        $newTeacher = User::factory()->create(['role' => 'teacher']);
+        $firstTeacher = User::factory()->create(['role' => 'teacher']);
+        $secondTeacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        $availableStudent = User::factory()->create(['role' => 'student']);
-        [$oldClassId, $subjectId] = $this->classFor($oldTeacher, $student);
-        $yearId = DB::table('school_classes')->where('id', $oldClassId)->value('school_year_id');
-        $newClassId = DB::table('school_classes')->insertGetId([
-            'name' => '8A3',
-            'subject_id' => $subjectId,
-            'teacher_id' => $newTeacher->id,
-            'school_year_id' => $yearId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        $this->withHeaders($this->headersFor($admin));
-        $available = $this->getJson('/api/users?role=student&unassigned=1')->assertOk()->json();
-        $this->assertEqualsCanonicalizing([$availableStudent->id], array_column($available, 'id'));
-        $this->postJson('/api/classes/'.$newClassId.'/students', ['student_id' => $student->id])
-            ->assertUnprocessable()->assertJsonValidationErrors('student_id');
-        DB::table('class_memberships')->insert([
-            'class_id' => $newClassId,
-            'student_id' => $student->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        $this->postJson('/api/classes/'.$oldClassId.'/transfer', [
-            'student_id' => $student->id,
-            'target_class_id' => $newClassId,
-        ])->assertOk();
-
-        $this->assertDatabaseMissing('class_memberships', ['class_id' => $oldClassId, 'student_id' => $student->id]);
-        $this->assertDatabaseHas('class_memberships', ['class_id' => $newClassId, 'student_id' => $student->id]);
-        $this->assertSame(1, DB::table('class_memberships')->where('student_id', $student->id)->count());
-        $this->assertDatabaseHas('notifications', ['user_id' => $student->id, 'kind' => 'transfer', 'body' => 'Em đã được chuyển từ 8A2 sang 8A3.']);
-        $this->assertDatabaseHas('notifications', ['user_id' => $oldTeacher->id, 'kind' => 'transfer']);
-        $this->assertDatabaseHas('notifications', ['user_id' => $newTeacher->id, 'kind' => 'transfer']);
-        $this->assertDatabaseHas('audit_logs', ['action' => 'transferred', 'entity_type' => 'class_membership']);
-
-        $this->postJson('/api/classes/'.$oldClassId.'/students', ['student_id' => $availableStudent->id])->assertOk();
-        $this->assertDatabaseHas('notifications', ['user_id' => $availableStudent->id, 'kind' => 'class']);
-        $this->assertDatabaseHas('notifications', ['user_id' => $oldTeacher->id, 'kind' => 'class']);
+        $secondStudent = User::factory()->create(['role' => 'student']);
+        $payload = ['title' => 'Direct homework', 'instructions' => 'Answer', 'max_score' => 10, 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'student_ids' => [$student->id, $secondStudent->id], 'published' => true];
+        $first = $this->withHeaders($this->headersFor($firstTeacher))->postJson('/api/assignments', $payload)->assertCreated()->json('id');
+        $second = $this->withHeaders($this->headersFor($secondTeacher))->postJson('/api/assignments', [...$payload, 'student_ids' => [$student->id]])->assertCreated()->json('id');
+        $this->assertDatabaseHas('teacher_students', ['teacher_id' => $firstTeacher->id, 'student_id' => $student->id]);
+        $this->assertDatabaseHas('teacher_students', ['teacher_id' => $secondTeacher->id, 'student_id' => $student->id]);
+        $this->withHeaders($this->headersFor($student))->getJson('/api/assignments')->assertOk()->assertJsonCount(2);
+        $this->withHeaders($this->headersFor($secondStudent))->getJson('/api/assignments')->assertOk()->assertJsonCount(1)->assertJsonPath('0.id', $first);
+        $this->getJson('/api/assignments/'.$second)->assertNotFound();
+        $this->withHeaders($this->headersFor($firstTeacher))->getJson('/api/classes')->assertNotFound();
     }
 
-    public function test_teacher_cannot_transfer_student_into_another_teachers_class(): void
+    public function test_teacher_cannot_change_another_teachers_recipients(): void
     {
-        $oldTeacher = User::factory()->create(['role' => 'teacher']);
-        $newTeacher = User::factory()->create(['role' => 'teacher']);
+        $teacher = User::factory()->create(['role' => 'teacher']);
+        $otherTeacher = User::factory()->create(['role' => 'teacher']);
         $student = User::factory()->create(['role' => 'student']);
-        [$oldClassId, $subjectId] = $this->classFor($oldTeacher, $student);
-        $yearId = DB::table('school_classes')->where('id', $oldClassId)->value('school_year_id');
-        $newClassId = DB::table('school_classes')->insertGetId([
-            'name' => '8A3',
-            'subject_id' => $subjectId,
-            'teacher_id' => $newTeacher->id,
-            'school_year_id' => $yearId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        $this->withHeaders($this->headersFor($oldTeacher))
-            ->postJson('/api/classes/'.$oldClassId.'/transfer', [
-                'student_id' => $student->id,
-                'target_class_id' => $newClassId,
-            ])->assertNotFound();
-        $this->assertDatabaseHas('class_memberships', ['class_id' => $oldClassId, 'student_id' => $student->id]);
+        $otherStudent = User::factory()->create(['role' => 'student']);
+        $payload = ['title' => 'Homework', 'instructions' => 'Answer', 'max_score' => 10, 'due_at' => now()->addDay()->toDateTimeString(), 'submission_type' => 'text', 'student_ids' => [$student->id], 'published' => true];
+        $id = $this->withHeaders($this->headersFor($teacher))->postJson('/api/assignments', $payload)->assertCreated()->json('id');
+        $this->withHeaders($this->headersFor($otherTeacher))->putJson('/api/assignments/'.$id, [...$payload, 'student_ids' => [$otherStudent->id]])->assertNotFound();
+        $this->assertDatabaseHas('assignment_students', ['assignment_id' => $id, 'student_id' => $student->id]);
+        $this->assertDatabaseMissing('assignment_students', ['assignment_id' => $id, 'student_id' => $otherStudent->id]);
     }
 }

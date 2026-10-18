@@ -23,7 +23,7 @@ class LibraryController extends Controller
         $query = $this->access->table('attachments')->whereNotNull('resource_owner_id')->whereNull('archived_at');
         if ($this->access->user()->role === 'student') {
             $query->where('visibility', 'assigned');
-            $query->whereIn('id', $this->access->table('material_permissions')->whereIn('class_id', $this->access->classIds())->select('attachment_id'));
+            $query->whereIn('id', $this->access->table('material_students')->where('student_id', $this->access->user()->id)->select('attachment_id'));
         } else {
             $this->access->requireRole('teacher', 'admin');
             $query->where('resource_owner_id', $this->access->user()->id);
@@ -45,9 +45,9 @@ class LibraryController extends Controller
     public function upload(Request $request): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $data = $request->validate(['file' => ['required_without:url', 'file', 'mimes:pdf,doc,docx,ppt,pptx,jpg,jpeg,png,webp,mp3,wav,ogg,m4a', 'max:51200'], 'url' => ['required_without:file', 'nullable', 'url:http,https', 'max:2048'], 'name' => ['nullable', 'string', 'max:180'], 'folder' => ['nullable', 'string', 'max:160'], 'class_ids' => ['sometimes', 'array', 'max:100'], 'class_ids.*' => ['integer'], ...$this->metadataRules()]);
-        foreach ($data['class_ids'] ?? [] as $classId) {
-            $this->access->classAccess($classId, true);
+        $data = $request->validate(['file' => ['required_without:url', 'file', 'mimes:pdf,doc,docx,ppt,pptx,jpg,jpeg,png,webp,mp3,wav,ogg,m4a', 'max:51200'], 'url' => ['required_without:file', 'nullable', 'url:http,https', 'max:2048'], 'name' => ['nullable', 'string', 'max:180'], 'folder' => ['nullable', 'string', 'max:160'], 'student_ids' => ['sometimes', 'array', 'max:1000'], 'student_ids.*' => ['integer', 'distinct'], ...$this->metadataRules()]);
+        foreach ($data['student_ids'] ?? [] as $studentId) {
+            abort_unless($this->access->table('users')->where('id', $studentId)->where('role', 'student')->where('active', true)->exists(), 422, 'Học sinh không hợp lệ.');
         }
         if (! empty($data['practice_round_id'])) {
             abort_unless($this->access->table('arcade_rounds')->where('id', $data['practice_round_id'])->where('teacher_id', $this->access->user()->id)->exists(), 422);
@@ -58,10 +58,11 @@ class LibraryController extends Controller
             $id = $this->access->table('attachments')->insertGetId(['resource_owner_id' => $this->access->user()->id, 'url' => $data['url'], 'name' => $data['name'] ?? $data['url'], 'folder' => $data['folder'] ?? '', 'created_at' => now(), 'updated_at' => now()]);
         }
         $metadata = array_intersect_key($data, $this->metadataRules());
-        $this->access->table('attachments')->where('id', $id)->update([...$metadata, ...(! empty($data['name']) ? ['name' => $data['name']] : []), 'published_at' => ! empty($data['class_ids']) ? now() : null]);
-        foreach (array_unique($data['class_ids'] ?? []) as $classId) {
-            $this->access->table('material_permissions')->insert(['attachment_id' => $id, 'class_id' => $classId]);
+        $this->access->table('attachments')->where('id', $id)->update([...$metadata, ...(! empty($data['name']) ? ['name' => $data['name']] : []), 'published_at' => ! empty($data['student_ids']) ? now() : null]);
+        foreach (array_unique($data['student_ids'] ?? []) as $studentId) {
+            $this->access->table('material_students')->insert(['attachment_id' => $id, 'student_id' => $studentId]);
         }
+        $this->access->connectStudents($this->access->user()->id, $data['student_ids'] ?? []);
         $this->access->audit('uploaded', 'material', $id);
 
         return response()->json(['id' => $id], 201);
@@ -72,20 +73,21 @@ class LibraryController extends Controller
         $this->access->requireRole('teacher', 'admin');
         $file = $this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->first();
         abort_unless($file, 404);
-        $data = $request->validate(['name' => ['required', 'string', 'max:180'], 'folder' => ['present', 'nullable', 'string', 'max:160'], 'archive' => ['boolean'], 'class_ids' => ['present', 'array', 'max:100'], 'class_ids.*' => ['integer'], ...$this->metadataRules()]);
+        $data = $request->validate(['name' => ['required', 'string', 'max:180'], 'folder' => ['present', 'nullable', 'string', 'max:160'], 'archive' => ['boolean'], 'student_ids' => ['present', 'array', 'max:1000'], 'student_ids.*' => ['integer', 'distinct'], ...$this->metadataRules()]);
         if (! empty($data['practice_round_id'])) {
             abort_unless($this->access->table('arcade_rounds')->where('id', $data['practice_round_id'])->where('teacher_id', $this->access->user()->id)->exists(), 422);
         }
-        foreach ($data['class_ids'] as $classId) {
-            $this->access->classAccess((int) $classId, true);
+        foreach ($data['student_ids'] as $studentId) {
+            abort_unless($this->access->table('users')->where('id', $studentId)->where('role', 'student')->where('active', true)->exists(), 422, 'Học sinh không hợp lệ.');
         }
         DB::transaction(function () use ($data, $id, $file) {
             $metadata = array_intersect_key($data, $this->metadataRules());
-            $this->access->table('attachments')->where('id', $id)->update([...$metadata, 'name' => $data['name'], 'folder' => $data['folder'] ?? '', 'archived_at' => ($data['archive'] ?? false) ? now() : null, 'published_at' => $data['class_ids'] ? ($file->published_at ?? now()) : $file->published_at, 'updated_at' => now()]);
-            $this->access->table('material_permissions')->where('attachment_id', $id)->delete();
-            foreach (array_unique($data['class_ids']) as $classId) {
-                $this->access->table('material_permissions')->insert(['attachment_id' => $id, 'class_id' => $classId]);
+            $this->access->table('attachments')->where('id', $id)->update([...$metadata, 'name' => $data['name'], 'folder' => $data['folder'] ?? '', 'archived_at' => ($data['archive'] ?? false) ? now() : null, 'published_at' => $data['student_ids'] ? ($file->published_at ?? now()) : $file->published_at, 'updated_at' => now()]);
+            $this->access->table('material_students')->where('attachment_id', $id)->delete();
+            foreach (array_unique($data['student_ids']) as $studentId) {
+                $this->access->table('material_students')->insert(['attachment_id' => $id, 'student_id' => $studentId]);
             }
+            $this->access->connectStudents($this->access->user()->id, $data['student_ids']);
             $this->access->audit('updated', 'material', $id, ['name' => $file->name], $data);
         });
 
@@ -97,14 +99,14 @@ class LibraryController extends Controller
         $this->access->requireRole('teacher', 'admin');
         abort_unless($this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->exists(), 404);
 
-        return response()->json($this->access->table('material_permissions')->where('attachment_id', $id)->pluck('class_id'));
+        return response()->json($this->access->table('material_students')->where('attachment_id', $id)->pluck('student_id'));
     }
 
     public function accessUrl(int $id): JsonResponse
     {
         $file = $this->access->file($id);
 
-        return response()->json(['url' => $file->url ?: URL::temporarySignedRoute('files.preview', now()->addMinutes(5), ['id' => $id])]);
+        return response()->json(['url' => $file->url ?: URL::temporarySignedRoute('files.preview', now()->addMinutes(5), ['id' => $id], absolute: false)]);
     }
 
     private function metadataRules(): array
@@ -128,6 +130,7 @@ class LibraryController extends Controller
     {
         $file = $this->access->file($id);
         abort_unless($file->path && ($file->mime === 'application/pdf' || str_starts_with($file->mime ?? '', 'image/') || str_starts_with($file->mime ?? '', 'audio/')), 415);
+        abort_unless(Storage::disk($file->disk)->exists($file->path), 404, 'Không tìm thấy tệp tài liệu trong kho lưu trữ. Vui lòng liên hệ người đăng tải.');
 
         return Storage::disk($file->disk)->response($file->path, $file->name, ['Content-Type' => $file->mime, 'Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff'], 'inline');
     }

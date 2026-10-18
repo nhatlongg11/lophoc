@@ -26,10 +26,10 @@ class TimetableRecurrenceTest extends TestCase
         $parent = User::factory()->create(['role' => 'parent']);
         $subject = DB::table('subjects')->insertGetId(['name' => 'Math']);
         $year = DB::table('school_years')->insertGetId(['name' => '2026', 'starts_on' => '2026-01-01', 'ends_on' => '2027-01-01']);
-        $class = DB::table('school_classes')->insertGetId(['name' => 'A', 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'school_year_id' => $year]);
-        DB::table('class_memberships')->insert(['class_id' => $class, 'student_id' => $student->id]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         DB::table('parent_student_links')->insert(['organization_id' => 1, 'parent_id' => $parent->id, 'student_id' => $student->id]);
-        $rule = ['class_id' => $class, 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'title' => 'Weekly Math', 'room' => 'Room 1', 'starts_on' => '2026-10-12', 'ends_on' => '2027-05-31', 'weekdays' => [1], 'start_time' => '09:00', 'end_time' => '09:45'];
+        $rule = ['student_ids' => [$studentId], 'teacher_id' => $teacher->id, 'subject_id' => $subject, 'title' => 'Weekly Math', 'room' => 'Room 1', 'starts_on' => '2026-10-12', 'ends_on' => '2027-05-31', 'weekdays' => [1], 'start_time' => '09:00', 'end_time' => '09:45'];
 
         return [$teacher, $student, $parent, $rule];
     }
@@ -68,7 +68,7 @@ class TimetableRecurrenceTest extends TestCase
         $this->asUser($teacher);
         $id = $this->postJson('/api/timetable/recurrences', $rule)->assertCreated()->json('id');
         $this->postJson('/api/timetable/recurrences', [...$rule, 'start_time' => '09:30', 'end_time' => '10:00'])->assertUnprocessable();
-        $this->postJson('/api/lessons', ['class_id' => $rule['class_id'], 'subject_id' => $rule['subject_id'], 'teacher_id' => $teacher->id, 'title' => 'Conflict', 'starts_at' => '2027-01-04 09:15', 'ends_at' => '2027-01-04 10:00', 'status' => 'scheduled'])->assertUnprocessable();
+        $this->postJson('/api/lessons', ['student_ids' => $rule['student_ids'], 'subject_id' => $rule['subject_id'], 'teacher_id' => $teacher->id, 'title' => 'Conflict', 'starts_at' => '2027-01-04 09:15', 'ends_at' => '2027-01-04 10:00', 'status' => 'scheduled'])->assertUnprocessable();
         $admin = User::factory()->create(['role' => 'admin']);
         $this->asUser($admin);
         $this->postJson('/api/timetable/holidays', ['title' => 'School holiday', 'starts_on' => '2026-10-19', 'ends_on' => '2026-10-19'])->assertCreated();
@@ -85,14 +85,14 @@ class TimetableRecurrenceTest extends TestCase
     {
         [$teacher, $student, $parent, $rule] = $this->fixture();
         $second = User::factory()->create(['role' => 'student']);
-        DB::table('class_memberships')->insert(['class_id' => $rule['class_id'], 'student_id' => $second->id]);
+        $rule['student_ids'][] = $second->id;
         $this->asUser($teacher);
         $this->postJson('/api/timetable/recurrences', $rule)->assertCreated();
         $lesson = $this->getJson('/api/lessons?from=2026-10-12&to=2026-10-18')->json('0.id');
         $this->postJson('/api/lessons/'.$lesson.'/attendance', ['records' => [['student_id' => $student->id, 'status' => 'unexcused', 'note' => 'Absent']]])->assertOk();
         $this->postJson('/api/lessons/'.$lesson.'/attendance', ['records' => [['student_id' => $second->id, 'status' => 'late']]])->assertOk();
         $this->assertDatabaseHas('attendance_records', ['student_id' => $student->id, 'lesson_id' => $lesson, 'status' => 'unexcused', 'note' => 'Absent']);
-        $this->getJson('/api/attendance/report?class_id='.$rule['class_id'].'&student_id='.$student->id.'&from=2026-10-12&to=2026-10-18')->assertOk()->assertJsonPath('records.0.status', 'unexcused')->assertJsonCount(1, 'records');
+        $this->getJson('/api/attendance/report?student_id='.$student->id.'&from=2026-10-12&to=2026-10-18')->assertOk()->assertJsonPath('records.0.status', 'unexcused')->assertJsonCount(1, 'records');
         $this->getJson('/api/lessons/'.$lesson.'/attendance/history')->assertOk()->assertJsonCount(3);
         $this->get('/api/attendance/export?from=2026-10-12&to=2026-10-18')->assertOk()->assertDownload('eduquest-attendance.csv');
     }

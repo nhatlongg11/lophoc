@@ -12,11 +12,10 @@ Artisan::command('inspire', function () {
 Artisan::command('learning:remind', function () {
     $now = now();
     $assignments = DB::table('assignments')
-        ->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')
-        ->join('class_memberships', 'assignment_classes.class_id', '=', 'class_memberships.class_id')
+        ->join('assignment_students', 'assignments.id', '=', 'assignment_students.assignment_id')
         ->where('assignments.published', true)
         ->whereBetween('assignments.due_at', [$now, $now->copy()->addDay()])
-        ->select('assignments.id', 'assignments.title', 'assignments.due_at', 'class_memberships.student_id')
+        ->select('assignments.id', 'assignments.title', 'assignments.due_at', 'assignment_students.student_id')
         ->distinct()
         ->get();
 
@@ -42,10 +41,10 @@ Artisan::command('learning:remind', function () {
     }
 
     $lessons = DB::table('lessons')
-        ->join('class_memberships', 'lessons.class_id', '=', 'class_memberships.class_id')
+        ->join('lesson_students', 'lessons.id', '=', 'lesson_students.lesson_id')
         ->where('lessons.status', '!=', 'cancelled')
         ->whereBetween('lessons.starts_at', [$now, $now->copy()->addHours(2)])
-        ->select('lessons.id', 'lessons.title', 'lessons.starts_at', 'class_memberships.student_id')
+        ->select('lessons.id', 'lessons.title', 'lessons.starts_at', 'lesson_students.student_id')
         ->get();
 
     foreach ($lessons as $lesson) {

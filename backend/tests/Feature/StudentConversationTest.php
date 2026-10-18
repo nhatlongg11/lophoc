@@ -19,7 +19,7 @@ class StudentConversationTest extends TestCase
         Storage::fake('local');
         $f = $this->eduFixture();
         $sibling = User::factory()->create(['role' => 'student']);
-        DB::table('class_memberships')->insert(['class_id' => $f['class'], 'student_id' => $sibling->id]);
+        DB::table('teacher_students')->insert(['organization_id' => 1, 'teacher_id' => $f['teacher']->id, 'student_id' => $sibling->id]);
         DB::table('parent_student_links')->insert(['organization_id' => 1, 'parent_id' => $f['parent']->id, 'student_id' => $sibling->id]);
         $this->eduAs($f['parent']);
         $this->postJson('/api/messages', ['recipient_id' => $f['teacher']->id, 'body' => 'Which child?'])->assertUnprocessable();

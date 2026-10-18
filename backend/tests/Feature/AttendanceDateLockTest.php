@@ -18,9 +18,11 @@ class AttendanceDateLockTest extends TestCase
         $student = User::factory()->create(['role' => 'student']);
         $yearId = DB::table('school_years')->insertGetId(['name' => '2026–2027', 'starts_on' => '2026-08-01', 'ends_on' => '2027-05-31', 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
         $subjectId = DB::table('subjects')->insertGetId(['name' => 'Toán học', 'color' => '#397c78', 'created_at' => now(), 'updated_at' => now()]);
-        $classId = DB::table('school_classes')->insertGetId(['name' => '8A2', 'subject_id' => $subjectId, 'teacher_id' => $teacher->id, 'school_year_id' => $yearId, 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('class_memberships')->insert(['class_id' => $classId, 'student_id' => $student->id, 'created_at' => now(), 'updated_at' => now()]);
-        $lessonId = DB::table('lessons')->insertGetId(['class_id' => $classId, 'subject_id' => $subjectId, 'teacher_id' => $teacher->id, 'title' => 'Tiết Toán', 'starts_at' => $startsAt, 'ends_at' => CarbonImmutable::parse($startsAt)->addMinutes(45)->toDateTimeString(), 'status' => 'scheduled', 'created_at' => now(), 'updated_at' => now()]);
+        $studentId = $student->id;
+        DB::table('teacher_students')->insert(['organization_id' => $teacher->organization_id, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
+        $lessonId = DB::table('lessons')->insertGetId(['subject_id' => $subjectId, 'teacher_id' => $teacher->id, 'title' => 'Tiết Toán', 'starts_at' => $startsAt, 'ends_at' => CarbonImmutable::parse($startsAt)->addMinutes(45)->toDateTimeString(), 'status' => 'scheduled', 'created_at' => now(), 'updated_at' => now()]);
+
+        DB::table('lesson_students')->insert(['organization_id' => $teacher->organization_id, 'lesson_id' => $lessonId, 'student_id' => $student->id]);
 
         return [$teacher, $student, $lessonId];
     }
@@ -110,7 +112,7 @@ class AttendanceDateLockTest extends TestCase
         $this->assertDatabaseCount('attendance_records', 0);
     }
 
-    public function test_date_permissions_do_not_expose_another_teachers_class(): void
+    public function test_date_permissions_do_not_expose_another_teachers_lesson(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-10-15 12:00:00', 'Asia/Ho_Chi_Minh'));
         [, $student, $lessonId] = $this->lessonFor('2026-10-14 09:00:00');
@@ -125,7 +127,7 @@ class AttendanceDateLockTest extends TestCase
     {
         $this->travelTo(CarbonImmutable::parse('2026-10-15 12:00:00', 'Asia/Ho_Chi_Minh'));
         [$teacher, $student, $lessonId] = $this->lessonFor('2026-10-14 09:00:00');
-        $lesson = (array) DB::table('lessons')->find($lessonId);
+        $lesson = [...(array) DB::table('lessons')->find($lessonId), 'student_ids' => DB::table('lesson_students')->where('lesson_id', $lessonId)->pluck('student_id')->all()];
         $this->withHeaders($this->headersFor($teacher));
         $this->putJson('/api/lessons/'.$lessonId, [...$lesson, 'starts_at' => '2026-10-16 09:00:00', 'ends_at' => '2026-10-16 09:45:00'])
             ->assertForbidden()->assertJsonPath('message', 'Không thể đổi ngày của tiết học đã qua. Vui lòng liên hệ quản trị viên nếu cần điều chỉnh.');
@@ -139,7 +141,7 @@ class AttendanceDateLockTest extends TestCase
     {
         $this->travelTo(CarbonImmutable::parse('2026-10-15 12:00:00', 'Asia/Ho_Chi_Minh'));
         [$teacher, , $lessonId] = $this->lessonFor('2026-10-14 09:00:00');
-        $lesson = (array) DB::table('lessons')->find($lessonId);
+        $lesson = [...(array) DB::table('lessons')->find($lessonId), 'student_ids' => DB::table('lesson_students')->where('lesson_id', $lessonId)->pluck('student_id')->all()];
         $this->withHeaders($this->headersFor($teacher))->putJson('/api/lessons/'.$lessonId, [...$lesson, 'room' => '305'])->assertOk();
         $this->assertDatabaseHas('lessons', ['id' => $lessonId, 'starts_at' => '2026-10-14 09:00:00', 'room' => '305']);
         $this->assertDatabaseHas('audit_logs', ['entity_type' => 'lesson', 'entity_id' => $lessonId, 'actor_id' => $teacher->id]);
@@ -149,7 +151,7 @@ class AttendanceDateLockTest extends TestCase
     {
         $this->travelTo(CarbonImmutable::parse('2026-10-15 12:00:00', 'Asia/Ho_Chi_Minh'));
         [, , $lessonId] = $this->lessonFor('2026-10-14 09:00:00');
-        $lesson = (array) DB::table('lessons')->find($lessonId);
+        $lesson = [...(array) DB::table('lessons')->find($lessonId), 'student_ids' => DB::table('lesson_students')->where('lesson_id', $lessonId)->pluck('student_id')->all()];
         $admin = User::factory()->create(['role' => 'admin']);
         $this->withHeaders($this->headersFor($admin))->putJson('/api/lessons/'.$lessonId, [...$lesson, 'starts_at' => '2026-10-16 09:00:00', 'ends_at' => '2026-10-16 09:45:00'])->assertOk();
         $this->assertDatabaseHas('lessons', ['id' => $lessonId, 'starts_at' => '2026-10-16 09:00:00']);

@@ -5,7 +5,6 @@ import { api } from '../api'
 
 export type User = { id: number; name: string; email: string; role: string; is_family_session?: boolean }
 export type Notify = (message: string, error?: boolean) => void
-export type SchoolClass = { id: number; name: string }
 export type Answer = string | string[] | Record<string, string> | boolean | number | null
 export type Question = { id: number | string; type: string; kind?: string; prompt: string; options: string[] | { left: string[]; right: string[] }; points?: number; answer?: Answer; media_url?: string; media?: MediaReference | null; choice_media?: Record<string, MediaReference>; explanation?: string | null; difficulty?: string; learning_objective?: string | null; topic?: string }
 export const questionTypes: Record<string, string> = { single: 'Chọn một đáp án', multiple: 'Chọn nhiều đáp án', true_false: 'Đúng / sai', fill_blank: 'Điền vào chỗ trống', short: 'Trả lời ngắn', essay: 'Tự luận', matching: 'Ghép cặp', ordering: 'Sắp xếp', image: 'Câu hỏi hình ảnh', audio: 'Nghe và trả lời', file: 'Nộp tệp', word_builder: 'Xây dựng từ' }

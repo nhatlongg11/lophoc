@@ -75,13 +75,12 @@ class FamilyController extends Controller
         $this->timetable->materialize(now()->startOfWeek(), now()->endOfWeek());
         $children = $this->access->table('users')->whereIn('id', $ids)->where('active', true)->select('id', 'name')->get();
         foreach ($children as $child) {
-            $classes = $this->access->table('class_memberships')->where('student_id', $child->id)->pluck('class_id')->all();
-            $child->analytics = $this->analytics->child($child->id, $classes);
+            $child->analytics = $this->analytics->child($child->id);
             $child->results = $this->access->table('submissions')->join('assignments', 'submissions.assignment_id', '=', 'assignments.id')->where('student_id', $child->id)->whereNotNull('submitted_at')->select('submissions.id', 'submissions.status', 'submissions.score', 'submissions.feedback', 'submissions.submitted_at', 'assignments.title', 'assignments.max_score')->orderByDesc('submitted_at')->limit(20)->get();
             $child->attendance = $this->access->table('attendance_records')->join('lessons', 'attendance_records.lesson_id', '=', 'lessons.id')->where('student_id', $child->id)->select('attendance_records.status', 'attendance_records.note', 'lessons.title', 'lessons.starts_at')->orderByDesc('starts_at')->limit(30)->get();
-            $child->timetable = $this->access->table('lessons')->whereIn('class_id', $classes)->whereBetween('starts_at', [now()->startOfWeek(), now()->endOfWeek()])->orderBy('starts_at')->get();
+            $child->timetable = $this->access->table('lessons')->whereIn('id', $this->access->table('lesson_students')->where('student_id', $child->id)->select('lesson_id'))->whereBetween('starts_at', [now()->startOfWeek(), now()->endOfWeek()])->orderBy('starts_at')->get();
             $child->observations = $this->access->table('support_notes')->where('student_id', $child->id)->orderByDesc('id')->limit(10)->get();
-            $child->homework = $this->access->table('assignments')->where('published', true)->whereIn('id', $this->access->table('assignment_classes')->whereIn('class_id', $classes)->select('assignment_id'))->select('id', 'title', 'due_at')->orderBy('due_at')->limit(30)->get();
+            $child->homework = $this->access->table('assignments')->where('published', true)->whereIn('id', $this->access->table('assignment_students')->where('student_id', $child->id)->select('assignment_id'))->select('id', 'title', 'due_at')->orderBy('due_at')->limit(30)->get();
         }
         $this->access->audit('parent_records_viewed', 'family', $this->access->user()->id, null, ['student_ids' => $ids]);
 
