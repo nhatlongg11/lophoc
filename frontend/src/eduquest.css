@@ -28,10 +28,15 @@ input,select,textarea{max-width:100%}
 .modal.wide{width:min(820px,96vw)}
 .modal h2{padding-right:30px}
 .modal>p,.modal label,.login-card label,.toolbar label,.question-card label{font-size:13px}
-.modal input:not([type=checkbox]):not([type=radio]),.modal textarea,.modal select,.stack-form input,.stack-form textarea,.stack-form select,.security-form input,.answer-text input,.answer-text textarea,.message-search input,.message-compose textarea,.child-picker select,.game-extras select,.grade-form input,.grade-form textarea{display:block;width:100%;padding:11px 12px;margin-top:6px;border:1px solid #cbd5d1;border-radius:9px;color:var(--ink);background:#fff;min-height:44px}
+.modal input:not([type=checkbox]):not([type=radio]),.modal textarea,.modal select,.stack-form input:not([type=checkbox]):not([type=radio]),.stack-form textarea,.stack-form select,.security-form input,.answer-text input,.answer-text textarea,.message-search input,.message-compose textarea,.child-picker select,.game-extras select,.grade-form input,.grade-form textarea{display:block;width:100%;padding:11px 12px;margin-top:6px;border:1px solid #cbd5d1;border-radius:9px;color:var(--ink);background:#fff;min-height:44px}
 .close{min-width:36px;min-height:36px;color:var(--ink)}
 .stack-form label,.security-form label,.grade-form label{display:block;font-size:13px;font-weight:600;margin:14px 0}
 .stack-form .check-row{font-weight:500}
+.check-row input[type=checkbox],.check-row input[type=radio]{flex:0 0 18px;width:18px;height:18px;min-width:18px;min-height:18px;margin:0;padding:0}
+.student-picker-list .check-row{min-height:48px;padding:8px;gap:10px;border-radius:8px;cursor:pointer;line-height:1.5}
+.student-picker-list .check-row:hover{background:#00000006}
+.student-picker-list .check-row>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.student-picker-list .check-row small{font-size:11px;margin-top:2px}
 .security-form{max-width:560px}
 .content>.panel+.panel{margin-top:22px}
 .family-screen{min-height:100vh;display:grid;place-items:center;padding:30px 16px;background:radial-gradient(ellipse at 10% 10%,#deebe5,transparent 55%),var(--canvas)}
