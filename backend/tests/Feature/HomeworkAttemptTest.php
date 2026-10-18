@@ -42,15 +42,20 @@ class HomeworkAttemptTest extends TestCase
         $this->assertArrayNotHasKey('answer', $first['questions'][0]);
         $q = array_column($first['questions'], 'id');
         $this->putJson('/api/attempts/'.$first['id'], ['answers' => [$q[0] => '4']])->assertOk();
+        $this->getJson('/api/dashboard')->assertOk()->assertJsonPath('submissions', 0);
         $this->postJson('/api/assignments/'.$id.'/start')->assertOk()->assertJsonPath('id', $first['id']);
         $this->postJson('/api/attempts/'.$first['id'].'/submit', ['answers' => [$q[0] => '4', $q[1] => 'wrong']])->assertOk()->assertJsonPath('score', 5);
+        $this->getJson('/api/dashboard')->assertOk()->assertJsonPath('submissions', 1);
         $this->postJson('/api/attempts/'.$first['id'].'/submit', ['answers' => []])->assertStatus(409);
         $second = $this->postJson('/api/assignments/'.$id.'/start')->assertOk()->json();
+        $this->getJson('/api/dashboard')->assertOk()->assertJsonPath('submissions', 1);
         $this->postJson('/api/attempts/'.$second['id'].'/submit', ['answers' => [$q[0] => '4', $q[1] => '  CAT  ']])->assertOk()->assertJsonPath('score', 10);
         $this->postJson('/api/assignments/'.$id.'/start')->assertUnprocessable();
         $this->getJson('/api/assignments/'.$id.'/attempts')->assertOk()->assertJsonCount(2);
         $this->assertDatabaseHas('assignment_attempts', ['id' => $first['id'], 'score' => 5]);
         $this->assertDatabaseHas('submissions', ['assignment_id' => $id, 'student_id' => $student->id, 'score' => 10]);
+        $this->getJson('/api/dashboard')->assertOk()->assertJsonPath('submissions', 1);
+        $this->withHeaders($this->headers($teacher))->getJson('/api/dashboard')->assertOk()->assertJsonPath('submissions', 1);
     }
 
     public function test_attempts_are_private_and_teacher_cannot_rewrite_live_questions(): void
@@ -76,6 +81,7 @@ class HomeworkAttemptTest extends TestCase
         $attempt = $this->postJson('/api/assignments/'.$id.'/start')->assertOk()->json();
         $questionId = $attempt['questions'][0]['id'];
         $this->postJson('/api/attempts/'.$attempt['id'].'/submit', ['answers' => [$questionId => 'Bài văn của em']])->assertOk()->assertJsonPath('status', 'submitted');
+        $this->getJson('/api/dashboard')->assertOk()->assertJsonPath('submissions', 1);
         $this->withHeaders($this->headers($teacher))->postJson('/api/attempts/'.$attempt['id'].'/grade', ['score' => 8, 'feedback' => 'Bố cục rõ ràng'])->assertOk();
         $this->assertDatabaseHas('submissions', ['assignment_id' => $id, 'student_id' => $student->id, 'score' => 8, 'status' => 'graded']);
         $this->postJson('/api/attempts/'.$attempt['id'].'/grade', ['score' => 9, 'feedback' => 'Sửa điểm'])->assertUnprocessable();

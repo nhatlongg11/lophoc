@@ -8,6 +8,7 @@ use App\QuestionEngine;
 use App\TenantQuery;
 use App\Timetable;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -112,12 +113,25 @@ class ApiController extends Controller
         $this->timetable->materialize(now()->startOfDay(), now()->addDays(7)->endOfDay());
         $upcoming = $this->table('lessons')->join('school_classes', 'lessons.class_id', '=', 'school_classes.id')->whereIn('lessons.class_id', $classIds)->where('starts_at', '>=', now()->startOfDay())->where('starts_at', '<=', now()->addDays(7))->where('lessons.status', '!=', 'cancelled')->orderBy('starts_at')->select('lessons.*', 'school_classes.name as class_name')->limit(6)->get();
         $due = $this->table('assignments')->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')->whereIn('assignment_classes.class_id', $classIds)->where('due_at', '>=', now())->where('due_at', '<=', now()->addDays(7))->where('published', true)->select('assignments.*')->distinct()->orderBy('due_at')->limit(6)->get();
-        $submissionQuery = $this->table('submissions')->join('assignments', 'submissions.assignment_id', '=', 'assignments.id')->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')->whereIn('assignment_classes.class_id', $classIds)->whereNotNull('submissions.submitted_at');
+        $completedSubmissions = $this->table('submissions')
+            ->join('assignments', 'submissions.assignment_id', '=', 'assignments.id')
+            ->join('assignment_classes', 'assignments.id', '=', 'assignment_classes.assignment_id')
+            ->join('class_memberships', function (JoinClause $join): void {
+                $join->on('class_memberships.class_id', '=', 'assignment_classes.class_id')
+                    ->on('class_memberships.student_id', '=', 'submissions.student_id');
+            })
+            ->where('assignments.organization_id', $this->user()->organization_id)
+            ->where('assignment_classes.organization_id', $this->user()->organization_id)
+            ->where('class_memberships.organization_id', $this->user()->organization_id)
+            ->whereIn('assignment_classes.class_id', $classIds)
+            ->where('assignments.published', true)
+            ->whereIn('submissions.status', ['submitted', 'graded'])
+            ->whereNotNull('submissions.submitted_at');
         if ($student) {
-            $submissionQuery->where('submissions.student_id', $this->user()->id);
+            $completedSubmissions->where('submissions.student_id', $this->user()->id);
         }
 
-        return response()->json(['classes' => count($classIds), 'assignments' => $assignments, 'submissions' => $submissionQuery->distinct()->count('submissions.id'), 'notifications' => $this->table('notifications')->where('user_id', $this->user()->id)->whereNull('read_at')->count(), 'upcoming_lessons' => $upcoming, 'due_assignments' => $due]);
+        return response()->json(['classes' => count($classIds), 'assignments' => $assignments, 'submissions' => $completedSubmissions->distinct()->count('submissions.id'), 'notifications' => $this->table('notifications')->where('user_id', $this->user()->id)->whereNull('read_at')->count(), 'upcoming_lessons' => $upcoming, 'due_assignments' => $due]);
     }
 
     public function users(Request $request): JsonResponse
