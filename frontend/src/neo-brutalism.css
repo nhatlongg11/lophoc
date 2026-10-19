@@ -88,6 +88,7 @@ h1,h2,h3,.page-head h1,.login-card h1,.panel h2,.modal h2,.section-heading,.game
 .close{border:var(--outline);background:var(--pastel-yellow);color:var(--ink);font-weight:700}
 .modal input:not([type=checkbox]):not([type=radio]),.modal select,.modal textarea,.login-card input,.parent-unlock input,.stack-form input:not([type=checkbox]):not([type=radio]),.stack-form select,.stack-form textarea,.security-form input,.answer-text input,.answer-text textarea,.message-search input,.message-compose textarea,.child-picker select,.grade-form input,.grade-form textarea,.game-extras select,.basic-input,.report-filters input,.report-filters select,.library-toolbar select,.toolbar select,.table-wrap input,.table-wrap select{border:var(--outline);border-radius:11px;background:#fffefa;color:var(--ink);min-height:44px;box-shadow:none}
 input[type=checkbox],input[type=radio]{accent-color:#252525}
+.btn.danger{background:var(--pastel-pink);color:var(--ink)}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #4355c5;outline-offset:4px}
 .question-editor,.question-card{border:var(--outline);border-radius:16px;background:#fffefa}
 .question-editor{margin:22px 0;padding:20px}

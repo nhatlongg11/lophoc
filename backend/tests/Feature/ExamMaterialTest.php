@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -86,5 +87,86 @@ class ExamMaterialTest extends TestCase
         Storage::disk('local')->delete(DB::table('attachments')->where('id', $id)->value('path'));
         $url = $this->getJson('/api/files/'.$id.'/access')->assertOk()->json('url');
         $this->getJson($url)->assertNotFound()->assertJsonPath('message', 'Không tìm thấy tệp tài liệu trong kho lưu trữ. Vui lòng liên hệ người đăng tải.');
+    }
+
+    public function test_owner_deletion_removes_a_shared_material_and_revokes_existing_access(): void
+    {
+        Storage::fake('local');
+        $f = $this->eduFixture();
+        $this->eduAs($f['teacher']);
+        $id = $this->postJson('/api/library', ['file' => UploadedFile::fake()->image('lesson.png'), 'visibility' => 'assigned', 'student_ids' => [$f['student']->id]])->assertCreated()->json('id');
+        $path = DB::table('attachments')->where('id', $id)->value('path');
+        $this->postJson('/api/library/'.$id.'/replace', ['file' => UploadedFile::fake()->image('revision.png')])->assertOk();
+        $replacement = DB::table('attachments')->where('id', $id)->value('current_file_id');
+        $untouched = $this->postJson('/api/library', ['url' => 'https://example.test/another-lesson'])->assertCreated()->json('id');
+        $this->eduAs($f['student']);
+        $url = $this->getJson('/api/files/'.$id.'/access')->assertOk()->json('url');
+        $this->get($url)->assertOk();
+
+        $this->eduAs($f['teacher']);
+        $this->deleteJson('/api/library/'.$id)->assertOk()->assertJsonPath('message', 'Đã xóa tài liệu khỏi kho và ngừng chia sẻ với học sinh.');
+
+        $this->getJson('/api/library')->assertJsonCount(1)->assertJsonPath('0.id', $untouched);
+        $this->assertDatabaseMissing('attachments', ['id' => $id, 'archived_at' => null]);
+        $this->assertDatabaseMissing('material_students', ['attachment_id' => $id]);
+        $this->assertDatabaseHas('audit_logs', ['entity_type' => 'material', 'entity_id' => $id, 'action' => 'deleted', 'actor_id' => $f['teacher']->id]);
+        Storage::disk('local')->assertExists($path);
+        Storage::disk('local')->assertExists(DB::table('attachments')->where('id', $replacement)->value('path'));
+        $this->getJson('/api/files/'.$id.'/access')->assertNotFound();
+        $this->deleteJson('/api/library/'.$id)->assertNotFound();
+        $this->getJson('/api/library/'.$id.'/permissions')->assertNotFound();
+        $this->putJson('/api/library/'.$id, ['name' => 'Restore', 'folder' => '', 'student_ids' => [$f['student']->id]])->assertNotFound();
+        $this->postJson('/api/library/'.$id.'/replace', ['file' => UploadedFile::fake()->image('restore.png')])->assertNotFound();
+        $this->deleteJson('/api/library/'.$replacement)->assertNotFound();
+        $this->eduAs($f['student']);
+        $this->getJson('/api/library')->assertExactJson([]);
+        $this->get($url)->assertNotFound();
+        $this->get('/api/files/'.$id)->assertNotFound();
+        $this->get('/api/files/'.$replacement)->assertNotFound();
+    }
+
+    public function test_other_users_cannot_delete_a_teachers_material_even_with_forged_ownership(): void
+    {
+        $f = $this->eduFixture();
+        $this->eduAs($f['teacher']);
+        $id = $this->postJson('/api/library', ['url' => 'https://example.test/lesson', 'visibility' => 'assigned', 'student_ids' => [$f['student']->id]])->assertCreated()->json('id');
+        foreach ([$f['student'], $f['parent']] as $user) {
+            $this->eduAs($user);
+            $this->deleteJson('/api/library/'.$id)->assertForbidden();
+        }
+        foreach (['teacher', 'admin'] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+            $this->eduAs($user);
+            $this->deleteJson('/api/library/'.$id, ['resource_owner_id' => $user->id])->assertNotFound();
+        }
+        $this->withHeader('Authorization', 'Bearer invalid')->deleteJson('/api/library/'.$id)->assertUnauthorized();
+        $this->assertDatabaseHas('attachments', ['id' => $id, 'archived_at' => null, 'resource_owner_id' => $f['teacher']->id]);
+        $this->assertDatabaseHas('material_students', ['attachment_id' => $id, 'student_id' => $f['student']->id]);
+        $this->assertDatabaseMissing('audit_logs', ['entity_type' => 'material', 'entity_id' => $id, 'action' => 'deleted']);
+    }
+
+    public function test_material_deletion_is_scoped_to_the_owners_organization(): void
+    {
+        $f = $this->eduFixture();
+        $this->eduAs($f['teacher']);
+        $id = $this->postJson('/api/library', ['url' => 'https://example.test/lesson'])->assertCreated()->json('id');
+        $org = DB::table('organizations')->insertGetId(['name' => 'Other school', 'slug' => 'other-school']);
+        DB::table('attachments')->where('id', $id)->update(['organization_id' => $org]);
+
+        $this->deleteJson('/api/library/'.$id)->assertNotFound();
+
+        $this->assertDatabaseHas('attachments', ['id' => $id, 'organization_id' => $org, 'archived_at' => null]);
+    }
+
+    public function test_an_admin_can_delete_their_own_link_material(): void
+    {
+        $this->eduFixture();
+        $this->eduAs(User::factory()->create(['role' => 'admin']));
+        $id = $this->postJson('/api/library', ['url' => 'https://example.test/lesson'])->assertCreated()->json('id');
+
+        $this->deleteJson('/api/library/'.$id)->assertOk();
+
+        $this->getJson('/api/library')->assertExactJson([]);
+        $this->getJson('/api/files/'.$id.'/access')->assertNotFound();
     }
 }

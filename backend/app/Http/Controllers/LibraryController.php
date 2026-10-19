@@ -71,7 +71,7 @@ class LibraryController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $file = $this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->first();
+        $file = $this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->whereNull('archived_at')->first();
         abort_unless($file, 404);
         $data = $request->validate(['name' => ['required', 'string', 'max:180'], 'folder' => ['present', 'nullable', 'string', 'max:160'], 'archive' => ['boolean'], 'student_ids' => ['present', 'array', 'max:1000'], 'student_ids.*' => ['integer', 'distinct'], ...$this->metadataRules()]);
         if (! empty($data['practice_round_id'])) {
@@ -82,7 +82,8 @@ class LibraryController extends Controller
         }
         DB::transaction(function () use ($data, $id, $file) {
             $metadata = array_intersect_key($data, $this->metadataRules());
-            $this->access->table('attachments')->where('id', $id)->update([...$metadata, 'name' => $data['name'], 'folder' => $data['folder'] ?? '', 'archived_at' => ($data['archive'] ?? false) ? now() : null, 'published_at' => $data['student_ids'] ? ($file->published_at ?? now()) : $file->published_at, 'updated_at' => now()]);
+            $updated = $this->access->table('attachments')->where('id', $id)->whereNull('archived_at')->update([...$metadata, 'name' => $data['name'], 'folder' => $data['folder'] ?? '', 'archived_at' => ($data['archive'] ?? false) ? now() : null, 'published_at' => $data['student_ids'] ? ($file->published_at ?? now()) : $file->published_at, 'updated_at' => now()]);
+            abort_unless($updated, 404);
             $this->access->table('material_students')->where('attachment_id', $id)->delete();
             foreach (array_unique($data['student_ids']) as $studentId) {
                 $this->access->table('material_students')->insert(['attachment_id' => $id, 'student_id' => $studentId]);
@@ -94,10 +95,24 @@ class LibraryController extends Controller
         return response()->json(['message' => 'Đã lưu tài liệu và quyền chia sẻ.']);
     }
 
+    public function destroy(int $id): JsonResponse
+    {
+        $this->access->requireRole('teacher', 'admin');
+        DB::transaction(function () use ($id) {
+            $file = $this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->whereNull('archived_at')->lockForUpdate()->first();
+            abort_unless($file, 404);
+            $this->access->table('attachments')->where('id', $id)->update(['archived_at' => now(), 'updated_at' => now()]);
+            $this->access->table('material_students')->where('attachment_id', $id)->delete();
+            $this->access->audit('deleted', 'material', $id, ['name' => $file->name]);
+        });
+
+        return response()->json(['message' => 'Đã xóa tài liệu khỏi kho và ngừng chia sẻ với học sinh.']);
+    }
+
     public function permissions(int $id): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        abort_unless($this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->exists(), 404);
+        abort_unless($this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->whereNull('archived_at')->exists(), 404);
 
         return response()->json($this->access->table('material_students')->where('attachment_id', $id)->pluck('student_id'));
     }
@@ -117,7 +132,7 @@ class LibraryController extends Controller
     public function replaceFile(Request $request, int $id): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        abort_unless($this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->exists(), 404);
+        abort_unless($this->access->table('attachments')->where('id', $id)->where('resource_owner_id', $this->access->user()->id)->whereNull('archived_at')->exists(), 404);
         $data = $request->validate(['file' => ['required', 'file', 'mimes:pdf,doc,docx,ppt,pptx,jpg,jpeg,png,webp,mp3,wav,ogg,m4a', 'max:51200']]);
         $newFile = $this->access->storeFile($data['file'], 'resources', []);
         $this->access->table('attachments')->where('id', $id)->update(['current_file_id' => $newFile, 'url' => null, 'updated_at' => now()]);

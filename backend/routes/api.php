@@ -84,6 +84,7 @@ Route::middleware('api.auth')->group(function () {
     Route::get('/library', [LibraryController::class, 'index']);
     Route::post('/library', [LibraryController::class, 'upload']);
     Route::put('/library/{id}', [LibraryController::class, 'update']);
+    Route::delete('/library/{id}', [LibraryController::class, 'destroy']);
     Route::post('/library/{id}/replace', [LibraryController::class, 'replaceFile'])->middleware('throttle:10,1');
     Route::get('/file-preview/{id}', [LibraryController::class, 'preview'])->middleware('signed:relative')->name('files.preview');
     Route::get('/library/{id}/permissions', [LibraryController::class, 'permissions']);
