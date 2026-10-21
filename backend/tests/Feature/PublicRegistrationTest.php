@@ -7,11 +7,25 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use PHPUnit\Framework\Attributes\TestWith;
+use Tests\EduQuestFixtures;
 use Tests\TestCase;
 
 class PublicRegistrationTest extends TestCase
 {
-    use RefreshDatabase;
+    use EduQuestFixtures, RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['eduquest.public_registration_enabled' => true]);
+    }
+
+    private function approve(User $user): void
+    {
+        $this->eduAs(User::factory()->create(['role' => 'admin']));
+        $this->postJson('/api/registrations/'.$user->id.'/review', ['decision' => 'approved'])->assertOk();
+        $this->withHeader('Authorization', '');
+    }
 
     private function payload(string $role = 'student'): array
     {
@@ -26,18 +40,23 @@ class PublicRegistrationTest extends TestCase
 
     #[TestWith(['student'])]
     #[TestWith(['teacher'])]
-    public function test_people_can_register_and_login_without_an_invitation(string $role): void
+    public function test_people_can_request_an_account_and_only_login_after_admin_approval(string $role): void
     {
         $this->csrf();
-        $payload = [...$this->payload($role), 'email' => 'New@Example.Test', 'active' => false, 'email_verified_at' => now()->toDateTimeString()];
+        $payload = [...$this->payload($role), 'email' => 'New@Example.Test', 'active' => true, 'registration_status' => 'approved', 'registration_reviewed_by' => 1, 'email_verified_at' => now()->toDateTimeString()];
         $this->postJson('/api/register', $payload)->assertCreated()->assertJsonPath('email', 'new@example.test')->assertJsonMissingPath('password');
         $user = User::where('email', 'new@example.test')->firstOrFail();
         $this->assertSame($role, $user->role);
         $this->assertSame(1, $user->organization_id);
-        $this->assertTrue($user->active);
+        $this->assertFalse($user->active);
+        $this->assertSame('pending', $user->registration_status);
+        $this->assertNull($user->registration_reviewed_by);
         $this->assertNull($user->email_verified_at);
         $this->assertTrue(Hash::check($payload['password'], $user->password));
-        $this->assertDatabaseHas('audit_logs', ['actor_id' => $user->id, 'action' => 'self_registered']);
+        $this->assertDatabaseHas('audit_logs', ['actor_id' => $user->id, 'action' => 'registration_requested']);
+        $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertForbidden();
+        $this->assertDatabaseCount('api_tokens', 0);
+        $this->approve($user);
         $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertOk()->assertJsonPath('user.role', $role);
         $this->getJson('/api/me')->assertOk()->assertJsonPath('id', $user->id);
         $this->getJson('/api/organization')->assertForbidden();
@@ -52,6 +71,8 @@ class PublicRegistrationTest extends TestCase
         $this->postJson('/api/register', $payload)->assertCreated();
         $parent = User::where('email', $payload['email'])->firstOrFail();
         $this->assertSame('family', $parent->role);
+        $this->assertFalse($parent->active);
+        $this->approve($parent);
         $this->assertTrue(Hash::check('629184', $parent->parent_pin_hash));
         $this->assertDatabaseCount('parent_student_links', 0);
         $this->postJson('/api/login', ['email' => $payload['email'], 'password' => $payload['password']])->assertOk()->assertJsonPath('user.role', 'family')->assertJsonMissingPath('user.parent_pin_hash');

@@ -2,31 +2,38 @@ import { test, expect } from '@playwright/test'
 
 test.use({ channel: 'chromium' })
 
+test('closed registration stays hidden even when opened directly', async ({ page }) => {
+  await page.route('**/api/me', route => route.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/registration/status', route => route.fulfill({ json: { enabled: false, approval_required: true } }))
+  await page.goto('/app/?register=1')
+  await expect(page.getByRole('button', { name: 'Đăng nhập', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Chưa có tài khoản? Đăng ký', exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Họ và tên', { exact: true })).toHaveCount(0)
+})
+
 for (const role of ['student', 'teacher', 'parent']) {
-  test('a visitor can register as ' + role + ' and enter the correct workspace', async ({ page }) => {
+  test('an enabled registration form submits a ' + role + ' request without automatic login', async ({ page }) => {
+    let logins = 0
+    await page.route('**/api/me', route => route.fulfill({ status: 401, json: {} }))
+    await page.route('**/api/csrf', route => route.fulfill({ json: { token: 'browser-csrf' } }))
+    page.on('request', request => { if (request.url().endsWith('/api/login')) logins++ })
+    await page.route('**/api/registration/status', route => route.fulfill({ json: { enabled: true, approval_required: true } }))
+    await page.route('**/api/register', route => {
+      expect(route.request().postDataJSON().role).toBe(role)
+      return route.fulfill({ status: 201, json: { message: 'Đã gửi yêu cầu đăng ký. Vui lòng chờ quản trị viên duyệt trước khi đăng nhập.', status: 'pending' } })
+    })
     await page.goto('/app/')
     await page.getByRole('button', { name: 'Chưa có tài khoản? Đăng ký', exact: true }).click()
-    const email = 'browser-' + role + '-' + Date.now() + '@example.test'
     await page.getByLabel('Họ và tên', { exact: true }).fill('Như ' + role)
-    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Email', { exact: true }).fill('browser-' + role + '@example.test')
     await page.getByLabel('Mật khẩu', { exact: true }).fill('Registration123!')
     await page.getByLabel('Nhập lại mật khẩu', { exact: true }).fill('Registration123!')
     await page.getByRole('combobox', { name: 'Vai trò', exact: true }).selectOption(role)
     if (role === 'parent') await page.getByLabel('PIN phụ huynh (tài khoản gia đình)', { exact: true }).fill('629184')
-    await page.getByRole('button', { name: 'Đăng ký tài khoản', exact: true }).click()
-    if (role === 'parent') {
-      await expect(page.getByRole('heading', { name: 'Hôm nay, ai đang học?' })).toBeVisible()
-      await expect(page.getByText('Chưa liên kết học sinh. Vui lòng liên hệ quản trị viên.')).toBeVisible()
-      await page.getByLabel('PIN phụ huynh', { exact: true }).fill('629184')
-      await page.getByRole('button', { name: 'Mở sổ liên lạc' }).click()
-      await expect(page.getByRole('heading', { name: 'Đồng hành cùng con' })).toBeVisible()
-    } else {
-      await expect(page.getByRole('heading', { name: /Chào/ })).toBeVisible()
-      const current = await (await page.request.get('/api/me')).json()
-      expect(current.email).toBe(email)
-      expect(current.role).toBe(role)
-      await expect(page.getByRole('navigation').getByRole('button', { name: 'Quản trị hệ thống', exact: true })).toHaveCount(0)
-    }
+    await page.getByRole('button', { name: 'Gửi yêu cầu đăng ký', exact: true }).click()
+    await expect(page.getByRole('status')).toContainText('Vui lòng chờ quản trị viên duyệt')
+    await expect(page.getByRole('button', { name: 'Đăng nhập', exact: true })).toBeVisible()
+    expect(logins).toBe(0)
   })
 }
 

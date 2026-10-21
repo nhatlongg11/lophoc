@@ -2,7 +2,7 @@ import { ParentAnalytics, type ChildAnalytics } from "./parent-analytics";
 import { ParentArcadeProgress } from "./learning-arcade/ParentProgress";
 import { Icon } from "../components/Icon";
 import { Brand } from "../components/Brand";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { QuestArt } from "../components/QuestArt";
 import {
@@ -21,9 +21,14 @@ import {
 
 export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
   const params = new URLSearchParams(window.location.search);
+  const registration = useResource<{ enabled: boolean; approval_required: boolean }>("/registration/status");
+  const requestedRegistration = params.has("register") && !params.has("invite") && !params.has("reset");
   const [mode, setMode] = useState(
-    params.has("invite") ? "invite" : params.has("reset") ? "reset" : params.has("register") ? "register" : "login",
+    params.has("invite") ? "invite" : params.has("reset") ? "reset" : "login",
   );
+  useEffect(() => {
+    if (registration.data?.enabled && requestedRegistration) setMode("register");
+  }, [registration.data?.enabled, requestedRegistration]);
   const [email, setEmail] = useState(params.get("email") || ""),
     [password, setPassword] = useState(""),
     [name, setName] = useState(""),
@@ -53,19 +58,17 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
         });
         onLogin(result.user);
       } else if (mode === "register") {
-        await api("/register", {
+        const result = await api<{ message: string }>("/register", {
           method: "POST",
           body: { name, email, password, password_confirmation: confirmation, role, parent_pin: role === "parent" ? pin : null },
         });
         setMode("login");
         setEmail(email.trim().toLowerCase());
-        setMessage("Đã tạo tài khoản. Bạn có thể đăng nhập bằng email và mật khẩu vừa chọn.");
-        const result = await api<{ user: User }>("/login", {
-          method: "POST",
-          body: { email: email.trim().toLowerCase(), password },
-        });
+        setPassword("");
+        setConfirmation("");
+        setPin("");
+        setMessage(result.message);
         window.history.replaceState({}, "", window.location.pathname);
-        onLogin(result.user);
       } else if (mode === "forgot") {
         const result = await api<{ message: string }>("/forgot-password", {
           method: "POST",
@@ -188,7 +191,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
               />
             </label>
           )}
-          {mode === "register" && <p className="muted">Mật khẩu tối thiểu 12 ký tự.{role === "parent" && " Quản trị viên sẽ liên kết tài khoản với học sinh để bạn xem thông tin của con."}</p>}
+          {mode === "register" && <p className="muted">Mật khẩu tối thiểu 12 ký tự. Tài khoản cần được quản trị viên duyệt trước khi đăng nhập.{role === "parent" && " Quản trị viên sẽ liên kết tài khoản với học sinh để bạn xem thông tin của con."}</p>}
           <ErrorBox message={error} />
           {message && (
             <p className="success-box" role="status">
@@ -207,7 +210,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
                   forgot: "Gửi hướng dẫn",
                   reset: "Lưu mật khẩu",
                   invite: "Tạo tài khoản",
-                  register: "Đăng ký tài khoản",
+                  register: "Gửi yêu cầu đăng ký",
                 }[mode]}
           </Button>
         </form>
@@ -226,7 +229,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
             </>
           )}
         </button>
-        {mode === "login" && <button className="text-link auth-link" onClick={() => { setMode("register"); setError(""); setMessage(""); setPassword(""); }}>Chưa có tài khoản? Đăng ký</button>}
+        {mode === "login" && registration.data?.enabled && <button className="text-link auth-link" onClick={() => { setMode("register"); setError(""); setMessage(""); setPassword(""); }}>Chưa có tài khoản? Đăng ký</button>}
       </div>
       <div className="login-art">
         <span>KHƠI DẬY NIỀM VUI HỌC TẬP</span>

@@ -55,7 +55,13 @@ class ApiController extends Controller
         $key = 'login-failure:'.mb_strtolower($data['email']).'|'.$request->ip();
         abort_if(RateLimiter::tooManyAttempts($key, 5), 429, 'Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.');
         $user = User::where('email', $data['email'])->first();
-        if (! $user || ! $user->active || ! Hash::check($data['password'], $user->password)) {
+        if (! $user || ! Hash::check($data['password'], $user->password)) {
+            RateLimiter::hit($key, 900);
+            throw ValidationException::withMessages(['email' => 'Email hoặc mật khẩu không đúng.']);
+        }
+        abort_if($user->registration_status === 'pending', 403, 'Tài khoản đang chờ quản trị viên duyệt. Vui lòng thử lại sau.');
+        abort_if($user->registration_status === 'rejected', 403, 'Yêu cầu đăng ký đã bị từ chối. Vui lòng liên hệ quản trị viên.');
+        if (! $user->active) {
             RateLimiter::hit($key, 900);
             throw ValidationException::withMessages(['email' => 'Email hoặc mật khẩu không đúng.']);
         }
@@ -116,7 +122,7 @@ class ApiController extends Controller
     public function users(Request $request): JsonResponse
     {
         $this->requireRole('admin', 'teacher');
-        $query = User::query()->where('users.organization_id', $this->user()->organization_id)->select('id', 'name', 'email', 'role', 'phone', 'active')->orderBy('name');
+        $query = User::query()->where('users.organization_id', $this->user()->organization_id)->select('id', 'name', 'email', 'role', 'phone', 'active', 'registration_status')->orderBy('name');
         if ($request->filled('role')) {
             $query->where('role', $request->string('role'));
         }
@@ -138,6 +144,7 @@ class ApiController extends Controller
             $data = $request->validate(['name' => ['required', 'string', 'max:160'], 'email' => ['required', 'email', Rule::unique('users')->ignore($id)], 'role' => ['required', Rule::in(['admin', 'teacher', 'student', 'family', 'parent'])], 'phone' => ['nullable', 'string', 'max:30'], 'active' => ['boolean'], 'password' => [$id ? 'nullable' : 'required', 'string', 'min:8']]);
             if ($id) {
                 $user = User::where('organization_id', $this->user()->organization_id)->findOrFail($id);
+                abort_if(in_array($user->registration_status, ['pending', 'rejected'], true), 422, 'Vui lòng xử lý tài khoản tại mục Duyệt đăng ký.');
                 if ($user->id === $this->user()->id && isset($data['active']) && ! $data['active']) {
                     throw ValidationException::withMessages(['active' => 'Bạn không thể khóa tài khoản của mình.']);
                 }

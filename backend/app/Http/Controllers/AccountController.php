@@ -18,8 +18,14 @@ class AccountController extends Controller
 {
     public function __construct(private LearningAccess $access) {}
 
+    public function registrationStatus(): JsonResponse
+    {
+        return response()->json(['enabled' => config('eduquest.public_registration_enabled'), 'approval_required' => true]);
+    }
+
     public function register(Request $request): JsonResponse
     {
+        abort_unless(config('eduquest.public_registration_enabled'), 403, 'Đăng ký tài khoản đang tạm đóng. Vui lòng liên hệ quản trị viên.');
         if (is_string($request->input('email'))) {
             $request->merge(['email' => Str::lower(trim($request->input('email')))]);
         }
@@ -44,21 +50,52 @@ class AccountController extends Controller
                 $limit = $role === 'student' ? $organization->max_students : $organization->max_teachers;
                 abort_if(User::where('organization_id', $organization->id)->where('role', $role)->where('active', true)->count() >= $limit, 422, 'Hệ thống đã đạt giới hạn tài khoản cho vai trò này. Vui lòng liên hệ quản trị viên.');
             }
-            $user = User::create([
+            $user = new User([
                 'organization_id' => $organization->id,
                 'name' => $data['name'],
                 'email' => $data['email'],
                 'password' => $data['password'],
                 'role' => $role,
-                'active' => true,
+                'active' => false,
                 'parent_pin_hash' => $role === 'family' ? Hash::make($data['parent_pin']) : null,
             ]);
-            DB::table('audit_logs')->insert(['organization_id' => $organization->id, 'actor_id' => $user->id, 'action' => 'self_registered', 'entity_type' => 'user', 'entity_id' => $user->id, 'created_at' => now(), 'updated_at' => now()]);
+            $user->forceFill(['registration_status' => 'pending'])->save();
+            DB::table('audit_logs')->insert(['organization_id' => $organization->id, 'actor_id' => $user->id, 'action' => 'registration_requested', 'entity_type' => 'user', 'entity_id' => $user->id, 'created_at' => now(), 'updated_at' => now()]);
 
             return $user;
         });
 
-        return response()->json(['message' => 'Đã tạo tài khoản.', 'email' => $user->email], 201);
+        return response()->json(['message' => 'Đã gửi yêu cầu đăng ký. Vui lòng chờ quản trị viên duyệt trước khi đăng nhập.', 'email' => $user->email, 'status' => 'pending'], 201);
+    }
+
+    public function registrations(): JsonResponse
+    {
+        $this->access->requireRole('admin');
+
+        return response()->json($this->access->table('users')->where('registration_status', 'pending')->select('id', 'name', 'email', 'role', 'created_at')->orderBy('created_at')->get());
+    }
+
+    public function reviewRegistration(Request $request, int $id): JsonResponse
+    {
+        $this->access->requireRole('admin');
+        $data = $request->validate(['decision' => ['required', Rule::in(['approved', 'rejected'])]]);
+        DB::transaction(function () use ($id, $data) {
+            $organization = DB::table('organizations')->where('id', $this->access->user()->organization_id)->lockForUpdate()->first();
+            $user = User::where('organization_id', $this->access->user()->organization_id)->where('registration_status', 'pending')->lockForUpdate()->findOrFail($id);
+            abort_unless(in_array($user->role, ['student', 'teacher', 'family'], true), 422, 'Vai trò đăng ký không hợp lệ.');
+            $approved = $data['decision'] === 'approved';
+            if ($approved) {
+                abort_unless($organization && $organization->subscription_status === 'active', 422, 'Tổ chức hiện chưa thể duyệt tài khoản.');
+                if (in_array($user->role, ['student', 'teacher'], true)) {
+                    $this->access->enforceLimit($user->role === 'teacher' ? 'teachers' : 'students');
+                }
+            }
+            $user->forceFill(['registration_status' => $data['decision'], 'active' => $approved, 'registration_reviewed_at' => now(), 'registration_reviewed_by' => $this->access->user()->id])->save();
+            $this->access->table('api_tokens')->where('user_id', $user->id)->delete();
+            $this->access->audit('registration_'.$data['decision'], 'user', $user->id, ['registration_status' => 'pending'], ['registration_status' => $data['decision']]);
+        });
+
+        return response()->json(['message' => $data['decision'] === 'approved' ? 'Đã duyệt tài khoản. Người dùng có thể đăng nhập.' : 'Đã từ chối yêu cầu đăng ký.']);
     }
 
     public function forgot(Request $request): JsonResponse
@@ -126,6 +163,7 @@ class AccountController extends Controller
             $org = DB::table('organizations')->where('id', $invitation->organization_id)->lockForUpdate()->first();
             abort_unless($org && $org->subscription_status === 'active', 422, 'Tổ chức chưa sẵn sàng nhận tài khoản.');
             $existing = User::where('email', $invitation->email)->lockForUpdate()->first();
+            abort_if($existing && in_array($existing->registration_status, ['pending', 'rejected'], true), 422, 'Tài khoản này cần được xử lý tại mục Duyệt đăng ký.');
             abort_if($existing && ($existing->organization_id !== $org->id || $existing->role !== $invitation->role || $existing->email_verified_at), 422, 'Email này không thể nhận lời mời.');
             if ((! $existing || ! $existing->active) && in_array($invitation->role, ['student', 'teacher'], true)) {
                 $limit = $invitation->role === 'student' ? $org->max_students : $org->max_teachers;

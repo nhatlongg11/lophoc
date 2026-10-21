@@ -19,7 +19,7 @@ class ApiAuthenticate
         }
         $row = DB::table('api_tokens')->where('token_hash', hash('sha256', $token))->where('expires_at', '>', now())->first();
         $user = $row ? User::find($row->user_id) : null;
-        if (! $user || ! $user->active || $row->organization_id !== $user->organization_id) {
+        if (! $user || ! $user->active || in_array($user->registration_status, ['pending', 'rejected'], true) || $row->organization_id !== $user->organization_id) {
             return response()->json(['message' => 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'], 401);
         }
         $organization = DB::table('organizations')->where('id', $user->organization_id)->first();

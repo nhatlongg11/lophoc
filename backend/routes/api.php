@@ -22,12 +22,15 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [ApiController::class, 'login'])->middleware('throttle:login');
 Route::post('/register', [AccountController::class, 'register'])->middleware('throttle:registration');
+Route::get('/registration/status', [AccountController::class, 'registrationStatus']);
 Route::get('/csrf', fn () => response()->json(['token' => csrf_token()]));
 Route::post('/forgot-password', [AccountController::class, 'forgot'])->middleware('throttle:3,1');
 Route::post('/reset-password', [AccountController::class, 'reset'])->middleware('throttle:5,1');
 Route::post('/invitations/accept', [AccountController::class, 'accept'])->middleware('throttle:5,1');
 
 Route::middleware('api.auth')->group(function () {
+    Route::get('/registrations', [AccountController::class, 'registrations']);
+    Route::post('/registrations/{id}/review', [AccountController::class, 'reviewRegistration']);
     Route::get('/arcade/collections', [ArcadeCollectionController::class, 'index']);
     Route::post('/arcade/collections', [ArcadeCollectionController::class, 'save']);
     Route::put('/arcade/collections/{id}', [ArcadeCollectionController::class, 'save']);
