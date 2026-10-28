@@ -20,12 +20,15 @@ class ArcadeAuthorController extends Controller
     public function index(Request $request): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $query = $this->access->table('arcade_rounds')->when($this->access->user()->role === 'teacher', fn ($q) => $q->where('teacher_id', $this->access->user()->id));
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:180'], 'subject_id' => ['nullable', 'integer', 'min:1']]);
+        $query = $this->access->table('arcade_rounds')->leftJoin('subjects', 'arcade_rounds.subject_id', '=', 'subjects.id')->select('arcade_rounds.*', 'subjects.name as subject_name')
+            ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('arcade_rounds.subject_id', $id))
+            ->when($this->access->user()->role === 'teacher', fn ($q) => $q->where('teacher_id', $this->access->user()->id));
         if (! $request->boolean('archived')) {
             $query->whereNull('archived_at');
         }
-        $search = $request->validate(['q' => ['nullable', 'string', 'max:180']])['q'] ?? '';
-        $rows = $query->when($search !== '', fn ($q) => $q->where('title', 'like', '%'.$search.'%'))->orderByDesc('id')->paginate(12);
+        $search = $data['q'] ?? '';
+        $rows = $query->when($search !== '', fn ($q) => $q->where('title', 'like', '%'.$search.'%'))->orderByDesc('arcade_rounds.id')->paginate(12);
 
         return response()->json($rows);
     }

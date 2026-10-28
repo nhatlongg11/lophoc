@@ -21,10 +21,12 @@ class ArcadeCollectionController extends Controller
         return $row;
     }
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $rows = $this->access->table('arcade_collections')->where('owner_id', $this->access->user()->id)->whereNull('archived_at')->orderByDesc('id')->get();
+        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1']]);
+        $rows = $this->access->table('arcade_collections')->where('owner_id', $this->access->user()->id)->whereNull('archived_at')
+            ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('subject_id', $id))->orderByDesc('id')->get();
         foreach ($rows as $row) {
             $row->round_ids = $this->access->table('arcade_collection_rounds')->where('collection_id', $row->id)->orderBy('sort_order')->pluck('round_id');
             $assigned = $this->access->table('arcade_assignments')->where('collection_id', $row->id)->whereNull('revoked_at')->get();

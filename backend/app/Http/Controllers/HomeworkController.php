@@ -37,7 +37,7 @@ class HomeworkController extends Controller
         unset($attempt->question_snapshot);
         if ($this->access->user()->role === 'student' && (! $assignment->release_answers || ! $attempt->submitted_at)) {
             $attempt->questions = array_map(function ($q) {
-                unset($q['answer']);
+                unset($q['answer'], $q['explanation']);
 
                 return $q;
             }, $attempt->questions);
@@ -56,6 +56,7 @@ class HomeworkController extends Controller
             'grade_policy' => ['required', Rule::in(['first', 'latest', 'highest'])],
             'time_limit_seconds' => ['nullable', 'integer', 'between:60,14400'],
             'release_answers' => ['boolean'],
+            'auto_grade_only' => ['boolean'],
             'questions' => ['required', 'array', 'min:1', 'max:100'],
             'questions.*.type' => ['required', Rule::in(QuestionEngine::TYPES)],
             'questions.*.prompt' => ['required', 'string', 'max:10000'],
@@ -74,6 +75,7 @@ class HomeworkController extends Controller
             abort_if($this->access->table('assignment_attempts')->where('assignment_id', $id)->exists(), 422, 'Đã có lượt làm bài. Hãy tạo bài tập mới để thay đổi nội dung.');
             $this->access->table('assignment_questions')->where('assignment_id', $id)->delete();
             foreach ($data['questions'] as $i => $q) {
+                abort_if(($data['auto_grade_only'] ?? false) && in_array($q['type'], ['short', 'essay', 'file'], true), 422, 'Bài tự chấm không được chứa câu tự luận hoặc tệp. Vui lòng chọn bài tập kết hợp.');
                 $this->engine->validateDefinition($q);
                 if (in_array($q['type'], ['single', 'image', 'audio', 'true_false'], true)) {
                     abort_unless(in_array($q['answer'], $q['options'], true), 422, 'Đáp án phải nằm trong các lựa chọn.');
@@ -84,7 +86,7 @@ class HomeworkController extends Controller
                 $this->access->table('assignment_questions')->insert(['assignment_id' => $id, 'type' => $q['type'], 'prompt' => $q['prompt'], 'options' => json_encode($q['options'], JSON_UNESCAPED_UNICODE), 'answer' => json_encode($q['answer'], JSON_UNESCAPED_UNICODE), 'points' => $q['points'], 'topic' => $q['topic'] ?? null, 'media_url' => $q['media_url'] ?? null, 'media' => isset($q['media']) ? json_encode($q['media']) : null, 'choice_media' => json_encode($q['choice_media'] ?? []), 'explanation' => $q['explanation'] ?? null, 'sort_order' => $i, 'created_at' => now(), 'updated_at' => now()]);
             }
             $this->media->link($data['questions'], 'assignment', $id);
-            unset($data['questions']);
+            unset($data['questions'], $data['auto_grade_only']);
             $this->access->table('assignments')->where('id', $id)->update([...$data, 'updated_at' => now()]);
             $this->access->audit('questions_authored', 'assignment', $id);
         });

@@ -222,9 +222,13 @@ class ApiController extends Controller
         return $this->access->assignment($id, $write);
     }
 
-    public function assignments(): JsonResponse
+    public function assignments(Request $request): JsonResponse
     {
-        $rows = $this->access->assigned('assignments')->when($this->user()->role === 'student', fn ($q) => $q->where('published', true)->whereNotIn('lifecycle', ['draft', 'archived']))->orderByDesc('created_at')->get();
+        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1'], 'unassigned' => ['sometimes', 'boolean']]);
+        $rows = $this->access->assigned('assignments')->leftJoin('subjects', 'assignments.subject_id', '=', 'subjects.id')->select('assignments.*', 'subjects.name as subject_name')
+            ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('assignments.subject_id', $id))
+            ->when($request->boolean('unassigned'), fn ($q) => $q->whereNull('assignments.subject_id'))
+            ->when($this->user()->role === 'student', fn ($q) => $q->where('published', true)->whereNotIn('lifecycle', ['draft', 'archived']))->orderByDesc('assignments.created_at')->get();
         foreach ($rows as $row) {
             $row->question_count = $this->table('assignment_questions')->where('assignment_id', $row->id)->count();
             $row->student_ids = $this->table('assignment_students')->where('assignment_id', $row->id)->pluck('student_id');
@@ -539,9 +543,12 @@ class ApiController extends Controller
         return response()->json(['message' => 'Đã lưu điểm danh cho buổi học.']);
     }
 
-    public function games(): JsonResponse
+    public function games(Request $request): JsonResponse
     {
-        $rows = $this->access->assigned('games')->orderByDesc('created_at')->get();
+        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1'], 'unassigned' => ['sometimes', 'boolean']]);
+        $rows = $this->access->assigned('games')->leftJoin('subjects', 'games.subject_id', '=', 'subjects.id')->select('games.*', 'subjects.name as subject_name')
+            ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('games.subject_id', $id))
+            ->when($request->boolean('unassigned'), fn ($q) => $q->whereNull('games.subject_id'))->orderByDesc('games.created_at')->get();
         foreach ($rows as $row) {
             $row->question_count = $this->table('questions')->where('game_id', $row->id)->count();
             $row->student_ids = $this->table('game_students')->where('game_id', $row->id)->pluck('student_id');

@@ -58,6 +58,50 @@ class HomeworkAttemptTest extends TestCase
         $this->withHeaders($this->headers($teacher))->getJson('/api/dashboard')->assertOk()->assertJsonPath('submissions', 1);
     }
 
+    public function test_quizzes_are_graded_and_release_correct_answers_only_after_submission(): void
+    {
+        $teacher = User::factory()->create(['role' => 'teacher']);
+        $student = User::factory()->create(['role' => 'student']);
+        $id = $this->assignment($teacher, $student);
+        $this->putJson('/api/assignments/'.$id.'/questions', ['allowed_attempts' => 1, 'grade_policy' => 'first', 'auto_grade_only' => true, 'release_answers' => true, 'questions' => [
+            ['type' => 'single', 'prompt' => '2 + 2?', 'options' => ['3', '4'], 'answer' => '4', 'points' => 1, 'explanation' => 'Hai cộng hai bằng bốn.'],
+            ['type' => 'multiple', 'prompt' => 'Chọn số chẵn', 'options' => ['2', '3', '4'], 'answer' => ['2', '4'], 'points' => 1],
+            ['type' => 'true_false', 'prompt' => '3 là số lẻ', 'options' => ['Đúng', 'Sai'], 'answer' => 'Đúng', 'points' => 1],
+            ['type' => 'single', 'prompt' => '5 + 1?', 'options' => ['5', '6'], 'answer' => '6', 'points' => 1],
+        ]])->assertOk();
+        $this->withHeaders($this->headers($student));
+        $attempt = $this->postJson('/api/assignments/'.$id.'/start')->assertOk()->assertJsonMissingPath('questions.0.answer')->assertJsonMissingPath('questions.0.explanation')->assertJsonPath('grading', null)->json();
+        $q = array_column($attempt['questions'], 'id');
+        $answers = [$q[0] => '4', $q[1] => ['2'], $q[2] => 'Đúng'];
+        $this->putJson('/api/attempts/'.$attempt['id'], ['answers' => $answers])->assertOk()->assertJsonMissingPath('questions.0.answer');
+        $this->postJson('/api/attempts/'.$attempt['id'].'/submit', ['answers' => $answers])->assertOk()->assertJsonPath('status', 'graded')->assertJsonPath('score', 5)
+            ->assertJsonPath('questions.0.answer', '4')->assertJsonPath('questions.0.explanation', 'Hai cộng hai bằng bốn.')
+            ->assertJsonPath('grading.'.$q[0].'.correct', true)->assertJsonPath('grading.'.$q[1].'.correct', false)
+            ->assertJsonPath('grading.'.$q[2].'.correct', true)->assertJsonPath('grading.'.$q[3].'.correct', false);
+        $this->assertDatabaseHas('submissions', ['assignment_id' => $id, 'student_id' => $student->id, 'score' => 5, 'status' => 'graded', 'graded_by' => null]);
+        $this->getJson('/api/assignments/'.$id.'/attempts')->assertOk()->assertJsonPath('0.questions.1.answer', ['2', '4'])->assertJsonPath('0.status', 'graded');
+    }
+
+    public function test_answer_release_can_be_disabled_without_disabling_automatic_grading(): void
+    {
+        $teacher = User::factory()->create(['role' => 'teacher']);
+        $student = User::factory()->create(['role' => 'student']);
+        $id = $this->assignment($teacher, $student);
+        $this->withHeaders($this->headers($student));
+        $attempt = $this->postJson('/api/assignments/'.$id.'/start')->assertOk()->json();
+        $q = array_column($attempt['questions'], 'id');
+        $this->postJson('/api/attempts/'.$attempt['id'].'/submit', ['answers' => [$q[0] => '4', $q[1] => 'cat']])->assertOk()->assertJsonPath('status', 'graded')->assertJsonPath('score', 10)->assertJsonMissingPath('questions.0.answer')->assertJsonPath('grading', null);
+    }
+
+    public function test_auto_grading_only_rejects_manual_questions_without_replacing_existing_questions(): void
+    {
+        $teacher = User::factory()->create(['role' => 'teacher']);
+        $student = User::factory()->create(['role' => 'student']);
+        $id = $this->assignment($teacher, $student);
+        $this->putJson('/api/assignments/'.$id.'/questions', ['allowed_attempts' => 1, 'grade_policy' => 'first', 'auto_grade_only' => true, 'questions' => [['type' => 'essay', 'prompt' => 'Viết đoạn văn', 'options' => [], 'answer' => null, 'points' => 1]]])->assertUnprocessable();
+        $this->assertDatabaseCount('assignment_questions', 2);
+    }
+
     public function test_attempts_are_private_and_teacher_cannot_rewrite_live_questions(): void
     {
         $teacher = User::factory()->create(['role' => 'teacher']);
