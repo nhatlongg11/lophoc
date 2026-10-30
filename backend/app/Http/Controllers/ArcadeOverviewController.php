@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\ArcadeSessions;
+use App\ContentGrade;
 use App\LearningAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,7 +25,7 @@ class ArcadeOverviewController extends Controller
     {
         $this->access->requireRole('student');
         $data = $request->validate(['subject_id' => ['nullable', 'integer'], 'grade' => ['nullable', 'string', 'max:40'], 'topic' => ['nullable', 'string', 'max:100'], 'page' => ['nullable', 'integer', 'min:1'], 'difficulty' => ['nullable', 'integer', 'between:1,3'], 'completion' => ['nullable', 'in:not_started,in_progress,completed']]);
-        $query = $this->studentRoundQuery()->when($data['subject_id'] ?? null, fn ($q, $value) => $q->where('arcade_versions.subject_id', $value))->when($data['grade'] ?? null, fn ($q, $value) => $q->where('arcade_versions.grade', $value))->when($data['topic'] ?? null, fn ($q, $value) => $q->where('arcade_versions.topic', $value));
+        $query = $this->studentRoundQuery()->when($data['subject_id'] ?? null, fn ($q, $value) => $q->where('arcade_versions.subject_id', $value))->when($data['topic'] ?? null, fn ($q, $value) => $q->where('arcade_versions.topic', $value));
         $query->when($data['difficulty'] ?? null, fn ($q, $value) => $q->where('arcade_versions.difficulty', $value));
         $completed = $this->access->table('arcade_sessions')->whereColumn('assignment_id', 'arcade_assignments.id')->where('student_id', $this->access->user()->id)->where('is_preview', false)->where('status', 'completed')->selectRaw('1');
         $started = $this->access->table('arcade_sessions')->whereColumn('assignment_id', 'arcade_assignments.id')->where('student_id', $this->access->user()->id)->where('is_preview', false)->selectRaw('1');
@@ -35,6 +36,7 @@ class ArcadeOverviewController extends Controller
         } elseif (($data['completion'] ?? '') === 'not_started') {
             $query->whereNotExists($started);
         }
+        ContentGrade::filter($query, 'arcade_versions.grade', $data['grade'] ?? null);
         $rows = $query->select('arcade_assignments.*', 'arcade_versions.title', 'arcade_versions.grade', 'arcade_versions.topic', 'arcade_versions.subject_id', 'arcade_versions.revision', 'arcade_versions.difficulty', 'arcade_versions.content', 'subjects.name as subject_name', 'arcade_rounds.is_demo')->orderByDesc('arcade_assignments.id')->paginate(12);
         $assignmentIds = collect($rows->items())->pluck('id');
         $sessions = $this->access->table('arcade_sessions')->where('student_id', $this->access->user()->id)->whereIn('assignment_id', $assignmentIds)->where('is_preview', false)->orderByDesc('id')->get()->groupBy('assignment_id');
@@ -91,13 +93,14 @@ class ArcadeOverviewController extends Controller
         return ['xp' => $xp, 'level' => 1 + intdiv($xp, 200), 'streak' => $streak, 'timezone' => config('app.timezone'), 'today_activities' => (clone $results)->where('arcade_results.created_at', '>=', now()->startOfDay())->count(), 'completed_rounds' => $this->access->table('arcade_sessions')->where('student_id', $studentId)->where('is_preview', false)->where('status', 'completed')->count(), 'mastery' => $mastery, 'achievements' => $this->access->table('student_achievements')->where('student_id', $studentId)->get(), 'history' => $history];
     }
 
-    public function hub(): JsonResponse
+    public function hub(Request $request): JsonResponse
     {
         $this->access->requireRole('student');
-        $counts = $this->studentRoundQuery()->groupBy('arcade_versions.subject_id')->selectRaw('arcade_versions.subject_id, COUNT(*) as round_count')->pluck('round_count', 'subject_id');
+        $data = $request->validate(['grade' => ['nullable', 'string', 'max:40']]);
+        $counts = ContentGrade::filter($this->studentRoundQuery(), 'arcade_versions.grade', $data['grade'] ?? null)->groupBy('arcade_versions.subject_id')->selectRaw('arcade_versions.subject_id, COUNT(*) as round_count')->pluck('round_count', 'subject_id');
         $subjects = $this->access->table('subjects')->get()->map(fn ($s) => ['id' => $s->id, 'name' => $s->name, 'round_count' => $counts[$s->id] ?? 0]);
         $allowed = collect($this->sessions->studentAssignments())->pluck('id');
-        $continue = $this->access->table('arcade_sessions')->join('arcade_versions', 'arcade_sessions.version_id', '=', 'arcade_versions.id')->where('student_id', $this->access->user()->id)->whereIn('assignment_id', $allowed)->where('is_preview', false)->where('status', 'active')->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->select('arcade_sessions.id', 'arcade_sessions.round_id', 'arcade_versions.title')->orderByDesc('arcade_sessions.id')->limit(5)->get();
+        $continue = ContentGrade::filter($this->access->table('arcade_sessions')->join('arcade_versions', 'arcade_sessions.version_id', '=', 'arcade_versions.id'), 'arcade_versions.grade', $data['grade'] ?? null)->where('student_id', $this->access->user()->id)->whereIn('assignment_id', $allowed)->where('is_preview', false)->where('status', 'active')->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->select('arcade_sessions.id', 'arcade_sessions.round_id', 'arcade_versions.title')->orderByDesc('arcade_sessions.id')->limit(5)->get();
 
         return response()->json([...$this->summary($this->access->user()->id), 'subjects' => $subjects, 'continue_sessions' => $continue]);
     }

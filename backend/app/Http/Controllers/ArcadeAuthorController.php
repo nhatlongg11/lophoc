@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\ArcadeContent;
 use App\ArcadeSessions;
 use App\ArcadeTemplates;
+use App\ContentGrade;
 use App\GameGenerator;
 use App\LearningAccess;
 use App\QuestionMedia;
@@ -20,10 +21,11 @@ class ArcadeAuthorController extends Controller
     public function index(Request $request): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $data = $request->validate(['q' => ['nullable', 'string', 'max:180'], 'subject_id' => ['nullable', 'integer', 'min:1']]);
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:180'], 'grade' => ['nullable', 'string', 'max:40'], 'subject_id' => ['nullable', 'integer', 'min:1']]);
         $query = $this->access->table('arcade_rounds')->leftJoin('subjects', 'arcade_rounds.subject_id', '=', 'subjects.id')->select('arcade_rounds.*', 'subjects.name as subject_name')
             ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('arcade_rounds.subject_id', $id))
             ->when($this->access->user()->role === 'teacher', fn ($q) => $q->where('teacher_id', $this->access->user()->id));
+        ContentGrade::filter($query, 'arcade_rounds.grade', $data['grade'] ?? null);
         if (! $request->boolean('archived')) {
             $query->whereNull('archived_at');
         }

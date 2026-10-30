@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\ArcadeSessions;
+use App\ContentGrade;
 use App\LearningAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ArcadeCollectionController extends Controller
 {
@@ -24,8 +26,8 @@ class ArcadeCollectionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $this->access->requireRole('teacher', 'admin');
-        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1']]);
-        $rows = $this->access->table('arcade_collections')->where('owner_id', $this->access->user()->id)->whereNull('archived_at')
+        $data = $request->validate(['grade' => ['nullable', 'string', 'max:40'], 'subject_id' => ['nullable', 'integer', 'min:1']]);
+        $rows = ContentGrade::filter($this->access->table('arcade_collections')->where('owner_id', $this->access->user()->id)->whereNull('archived_at'), 'grade', $data['grade'] ?? null)
             ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('subject_id', $id))->orderByDesc('id')->get();
         foreach ($rows as $row) {
             $row->round_ids = $this->access->table('arcade_collection_rounds')->where('collection_id', $row->id)->orderBy('sort_order')->pluck('round_id');
@@ -51,13 +53,15 @@ class ArcadeCollectionController extends Controller
         if ($id) {
             $this->owned($id);
         }
-        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'description' => ['nullable', 'string', 'max:4000'], 'subject_id' => ['required', 'integer', $this->access->exists('subjects')], 'round_ids' => ['required', 'array', 'min:1', 'max:30'], 'round_ids.*' => ['integer', 'distinct']]);
+        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'description' => ['nullable', 'string', 'max:4000'], 'grade' => ['nullable', Rule::in(ContentGrade::GRADES)], 'subject_id' => ['required', 'integer', $this->access->exists('subjects')], 'round_ids' => ['required', 'array', 'min:1', 'max:30'], 'round_ids.*' => ['integer', 'distinct']]);
+        $grade = $data['grade'] ?? ($id ? $this->owned($id)->grade : null);
         foreach ($data['round_ids'] as $roundId) {
             $round = $this->sessions->ownedRound($roundId);
+            abort_if($grade && (string) $round->grade !== (string) $grade, 422, 'Chọn các vòng học cùng lớp.');
             abort_unless($round->subject_id === $data['subject_id'] && ! $round->archived_at, 422, 'Chọn các vòng cùng môn và chưa lưu trữ.');
         }
         $id = DB::transaction(function () use ($data, $id) {
-            $fields = array_intersect_key($data, array_flip(['title', 'description', 'subject_id']));
+            $fields = array_intersect_key($data, array_flip(['title', 'description', 'subject_id', 'grade']));
             if ($id) {
                 $this->access->table('arcade_collections')->where('id', $id)->update([...$fields, 'updated_at' => now()]);
                 $this->access->table('arcade_collection_rounds')->where('collection_id', $id)->delete();
@@ -80,9 +84,14 @@ class ArcadeCollectionController extends Controller
         $this->owned($id);
         $data = $request->validate([...$this->access->recipientRules(), 'allowed_attempts' => ['required', 'integer', 'between:1,100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['nullable', 'date']]);
         $assignments = DB::transaction(function () use ($id, $data) {
-            $this->access->table('arcade_collections')->where('id', $id)->lockForUpdate()->first();
+            $collection = $this->access->table('arcade_collections')->where('id', $id)->lockForUpdate()->first();
             $ids = [];
             foreach ($this->access->table('arcade_collection_rounds')->where('collection_id', $id)->orderBy('sort_order')->pluck('round_id') as $round) {
+                if ($collection->grade) {
+                    $row = $this->sessions->ownedRound($round);
+                    $version = $this->access->table('arcade_versions')->where('id', $row->published_version_id)->first();
+                    abort_unless($version && $version->grade === $collection->grade, 422, 'Hãy phát hành các vòng học đúng lớp của bộ sưu tập trước khi giao.');
+                }
                 $assignment = $this->author->assign(new Request($data), $round)->getData(true)['id'];
                 $this->access->table('arcade_assignments')->where('id', $assignment)->update(['collection_id' => $id]);
                 $ids[] = $assignment;

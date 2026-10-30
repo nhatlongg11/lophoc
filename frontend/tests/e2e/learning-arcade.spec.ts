@@ -16,6 +16,7 @@ async function openArcade(page: Page) {
   const navigation = page.getByRole('navigation', { name: 'Điều hướng chính' })
   if (!await navigation.isVisible()) await page.getByRole('button', { name: 'Mở trình đơn', exact: true }).click()
   await navigation.getByRole('button', { name: 'Trò chơi', exact: true }).click()
+  await page.getByRole('button', { name: 'Lớp 5', exact: true }).click()
 }
 
 test.beforeAll(async ({ request }) => {

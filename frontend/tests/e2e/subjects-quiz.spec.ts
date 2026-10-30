@@ -17,6 +17,7 @@ test('a teacher assigns a subject quiz and a student immediately sees its score 
     teacher.on('pageerror', error => errors.push(error.message)); student.on('pageerror', error => errors.push(error.message))
     await login(teacher, 'giaovien@lophoc.local')
     await teacher.getByRole('navigation').getByRole('button', { name: 'Bài tập', exact: true }).click()
+    await teacher.getByRole('button', { name: 'Lớp 3', exact: true }).click()
     const filter = teacher.getByRole('navigation', { name: 'Lọc theo môn học' })
     await filter.getByRole('button', { name: 'Toán học', exact: true }).click()
     await teacher.getByRole('button', { name: 'Tạo bài tập có câu hỏi' }).click()
@@ -46,6 +47,7 @@ test('a teacher assigns a subject quiz and a student immediately sees its score 
 
     await login(student, 'hocsinh@lophoc.local')
     await student.getByRole('navigation').getByRole('button', { name: 'Bài tập', exact: true }).click()
+    await student.getByRole('button', { name: 'Lớp 3', exact: true }).click()
     await student.getByRole('navigation', { name: 'Lọc theo môn học' }).getByRole('button', { name: 'Toán học', exact: true }).click()
     await student.getByRole('article').filter({ has: student.getByRole('heading', { name: title, exact: true }) }).getByRole('button', { name: /Xem bài tập/ }).click()
     await student.getByRole('button', { name: 'Bắt đầu / tiếp tục làm bài' }).click()
@@ -79,16 +81,17 @@ test('subject buttons filter teacher arcade rounds, collections and older games'
   const templates = await (await page.request.get('/api/arcade/templates')).json()
   const stamp = Date.now()
   for (const [id, label] of [[math, 'Math'], [english, 'English']] as const) {
-    const content = { ...templates[0].content, subject_id: id, title: label + ' round ' + stamp }
+    const content = { ...templates[0].content, grade: '5', subject_id: id, title: label + ' round ' + stamp }
     const response = await page.request.post('/api/arcade/rounds', { headers: { 'X-CSRF-TOKEN': token }, data: { content, expected_revision: 0 } })
     expect(response.ok(), await response.text()).toBe(true)
     const round = (await response.json()).id
-    const collection = await page.request.post('/api/arcade/collections', { headers: { 'X-CSRF-TOKEN': token }, data: { title: label + ' collection ' + stamp, subject_id: id, round_ids: [round] } })
+    const collection = await page.request.post('/api/arcade/collections', { headers: { 'X-CSRF-TOKEN': token }, data: { title: label + ' collection ' + stamp, grade: '5', subject_id: id, round_ids: [round] } })
     expect(collection.ok(), await collection.text()).toBe(true)
-    const game = await page.request.post('/api/games', { headers: { 'X-CSRF-TOKEN': token }, data: { title: label + ' legacy ' + stamp, subject_id: id, type: 'quiz', student_ids: [students[0].id], questions: [{ prompt: '2+2?', options: ['3', '4'], answer: '4' }] } })
+    const game = await page.request.post('/api/games', { headers: { 'X-CSRF-TOKEN': token }, data: { title: label + ' legacy ' + stamp, grade: '5', subject_id: id, type: 'quiz', student_ids: [students[0].id], questions: [{ prompt: '2+2?', options: ['3', '4'], answer: '4' }] } })
     expect(game.ok(), await game.text()).toBe(true)
   }
   await page.getByRole('navigation').getByRole('button', { name: 'Trò chơi', exact: true }).click()
+  await page.getByRole('button', { name: 'Lớp 5', exact: true }).click()
   const filter = page.getByRole('navigation', { name: 'Lọc theo môn học' })
   await filter.getByRole('button', { name: 'Tiếng Anh', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'English round ' + stamp, exact: true })).toBeVisible()

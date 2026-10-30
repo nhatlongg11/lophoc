@@ -31,7 +31,7 @@ class DatabaseSeeder extends Seeder
                 DB::table('teacher_students')->insertOrIgnore(['organization_id' => 1, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
             }
             $lesson = $this->ensure('lessons', ['organization_id' => 1, 'title' => 'Ôn tập chương I'], ['teacher_id' => $teacher->id, 'subject_id' => $subjects['Toán học'], 'room' => '205', 'starts_at' => now()->addDay()->setTime(9, 0), 'ends_at' => now()->addDay()->setTime(9, 45), 'status' => 'scheduled']);
-            $assignment = $this->ensure('assignments', ['organization_id' => 1, 'teacher_id' => $teacher->id, 'title' => 'Khám phá kiến thức mỗi ngày'], ['subject_id' => $subjects['Toán học'], 'instructions' => 'Hoàn thành các câu hỏi. Em có thể lưu tiến độ và làm tối đa hai lượt.', 'max_score' => 10, 'due_at' => now()->addDays(7), 'published' => true, 'submission_type' => 'both', 'allowed_attempts' => 2, 'grade_policy' => 'highest']);
+            $assignment = $this->ensure('assignments', ['organization_id' => 1, 'teacher_id' => $teacher->id, 'title' => 'Khám phá kiến thức mỗi ngày'], ['grade' => '5', 'subject_id' => $subjects['Toán học'], 'instructions' => 'Hoàn thành các câu hỏi. Em có thể lưu tiến độ và làm tối đa hai lượt.', 'max_score' => 10, 'due_at' => now()->addDays(7), 'published' => true, 'submission_type' => 'both', 'allowed_attempts' => 2, 'grade_policy' => 'highest']);
             foreach ($students as $student) {
                 DB::table('assignment_students')->insertOrIgnore(['organization_id' => 1, 'assignment_id' => $assignment, 'student_id' => $student->id]);
                 DB::table('lesson_students')->insertOrIgnore(['organization_id' => 1, 'lesson_id' => $lesson, 'student_id' => $student->id]);
@@ -48,7 +48,7 @@ class DatabaseSeeder extends Seeder
                 ['challenge', 'Nhà khám phá nhỏ', [['single', 'Bộ phận nào giúp cây hút nước?', ['Rễ', 'Hoa', 'Lá'], 'Rễ'], ['ordering', 'Sắp xếp các số từ bé đến lớn.', ['5', '1', '3'], ['1', '3', '5']], ['fill_blank', 'Điền từ còn thiếu: Có công mài sắt, có ngày nên ___.', [], ['kim']]]],
             ];
             foreach ($rounds as [$type, $title, $questions]) {
-                $game = $this->ensure('games', ['organization_id' => 1, 'title' => $title], ['subject_id' => $subjects['Toán học'], 'teacher_id' => $teacher->id, 'type' => $type, 'time_limit_seconds' => 300, 'allowed_attempts' => 10]);
+                $game = $this->ensure('games', ['organization_id' => 1, 'title' => $title], ['grade' => '5', 'subject_id' => $subjects['Toán học'], 'teacher_id' => $teacher->id, 'type' => $type, 'time_limit_seconds' => 300, 'allowed_attempts' => 10]);
                 foreach ($students as $student) {
                     DB::table('game_students')->insertOrIgnore(['organization_id' => 1, 'game_id' => $game, 'student_id' => $student->id]);
                 }

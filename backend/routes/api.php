@@ -131,6 +131,7 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/school-years', [ApiController::class, 'saveSchoolYear']);
     Route::get('/assignments', [ApiController::class, 'assignments']);
     Route::post('/assignments', [ApiController::class, 'saveAssignment']);
+    Route::patch('/assignments/{id}/classification', [ApiController::class, 'classifyAssignment']);
     Route::put('/assignments/{id}', [ApiController::class, 'saveAssignment']);
     Route::get('/assignments/{id}', [ApiController::class, 'assignment']);
     Route::post('/assignments/{id}/submit', [ApiController::class, 'submit']);
@@ -146,6 +147,7 @@ Route::middleware('api.auth')->group(function () {
     Route::post('/lessons/{id}/attendance', [ApiController::class, 'saveAttendance']);
     Route::get('/games', [ApiController::class, 'games']);
     Route::post('/games', [ApiController::class, 'saveGame']);
+    Route::patch('/games/{id}/classification', [ApiController::class, 'classifyGame']);
     Route::get('/games/{id}', [ApiController::class, 'game']);
     Route::post('/games/{id}/start', [GameProgressController::class, 'start']);
     Route::post('/games/{id}/attempt', [GameProgressController::class, 'finish']);

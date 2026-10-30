@@ -160,6 +160,12 @@ audio{max-width:100%;margin:15px 0}
 .platform-console>.panel{margin-bottom:24px}
 .library-toolbar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px}
 .subject-filter{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}
+.grade-picker{margin:20px 0;padding:20px;border:2px solid var(--ink);border-radius:18px;background:var(--surface)}
+.grade-picker h2{font-size:18px;margin:0 0 14px}.grade-picker p{margin:14px 0 0;color:var(--muted)}
+.grade-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.grade-choices button{min-height:64px;border:2px solid var(--ink);border-radius:14px;background:var(--canvas);color:var(--ink);font-weight:800;font-size:18px}
+.grade-choices button.selected{background:var(--pastel-yellow,#ffe9a2);box-shadow:3px 3px 0 var(--ink)}
+.grade-picker>.text-link{margin-top:12px;white-space:normal}
 .subject-filter button{min-height:44px;padding:9px 16px;border:2px solid var(--ink);border-radius:100px;background:var(--surface);color:var(--ink);font-size:13px;font-weight:700}
 .subject-filter button.selected{background:var(--pastel-purple,#e5daff);box-shadow:3px 3px 0 var(--ink)}
 .homework-review{padding:0;list-style:none;text-align:left;display:grid;gap:12px;margin:20px 0}

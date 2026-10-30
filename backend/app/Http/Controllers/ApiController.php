@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\ContentGrade;
 use App\LearningAccess;
 use App\Models\User;
 use App\QuestionEngine;
@@ -224,8 +225,8 @@ class ApiController extends Controller
 
     public function assignments(Request $request): JsonResponse
     {
-        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1'], 'unassigned' => ['sometimes', 'boolean']]);
-        $rows = $this->access->assigned('assignments')->leftJoin('subjects', 'assignments.subject_id', '=', 'subjects.id')->select('assignments.*', 'subjects.name as subject_name')
+        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1'], 'unassigned' => ['sometimes', 'boolean'], 'grade' => ['nullable', 'string', 'max:40']]);
+        $rows = ContentGrade::filter($this->access->assigned('assignments')->leftJoin('subjects', 'assignments.subject_id', '=', 'subjects.id')->select('assignments.*', 'subjects.name as subject_name'), 'assignments.grade', $data['grade'] ?? null)
             ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('assignments.subject_id', $id))
             ->when($request->boolean('unassigned'), fn ($q) => $q->whereNull('assignments.subject_id'))
             ->when($this->user()->role === 'student', fn ($q) => $q->where('published', true)->whereNotIn('lifecycle', ['draft', 'archived']))->orderByDesc('assignments.created_at')->get();
@@ -240,6 +241,30 @@ class ApiController extends Controller
         }
 
         return response()->json($rows);
+    }
+
+    public function classifyAssignment(Request $request, int $id): JsonResponse
+    {
+        return $this->classifyContent($request, 'assignments', $id);
+    }
+
+    public function classifyGame(Request $request, int $id): JsonResponse
+    {
+        return $this->classifyContent($request, 'games', $id);
+    }
+
+    private function classifyContent(Request $request, string $table, int $id): JsonResponse
+    {
+        $this->requireRole('teacher', 'admin');
+        $data = $request->validate(['grade' => ['required', Rule::in(ContentGrade::GRADES)], 'subject_id' => ['present', 'nullable', 'integer', $this->access->exists('subjects')]]);
+        DB::transaction(function () use ($table, $id, $data) {
+            $row = $this->access->assigned($table)->where($table.'.id', $id)->lockForUpdate()->first();
+            abort_unless($row, 404);
+            $this->table($table)->where('id', $id)->update([...$data, 'updated_at' => now()]);
+            $this->auditChange('classified', $table === 'assignments' ? 'assignment' : 'game', $id, ['grade' => $row->grade, 'subject_id' => $row->subject_id], $data);
+        });
+
+        return response()->json(['message' => 'Đã cập nhật lớp và môn học.']);
     }
 
     public function assignment(int $id): JsonResponse
@@ -258,7 +283,7 @@ class ApiController extends Controller
     public function saveAssignment(Request $request, ?int $id = null): JsonResponse
     {
         $this->requireRole('admin', 'teacher');
-        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'instructions' => ['required', 'string'], 'criteria' => ['nullable', 'string'], 'max_score' => ['required', 'numeric', 'gt:0', 'lte:100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['required', 'date', 'after:now'], 'submission_type' => ['required', Rule::in(['file', 'text', 'both'])], ...$this->access->recipientRules(), 'subject_id' => ['nullable', 'integer', $this->access->exists('subjects')], 'published' => ['boolean']]);
+        $data = $request->validate(['title' => ['required', 'string', 'max:180'], 'instructions' => ['required', 'string'], 'criteria' => ['nullable', 'string'], 'max_score' => ['required', 'numeric', 'gt:0', 'lte:100'], 'starts_at' => ['nullable', 'date'], 'due_at' => ['required', 'date', 'after:now'], 'submission_type' => ['required', Rule::in(['file', 'text', 'both'])], ...$this->access->recipientRules(), 'grade' => ['nullable', Rule::in(ContentGrade::GRADES)], 'subject_id' => ['nullable', 'integer', $this->access->exists('subjects')], 'published' => ['boolean']]);
         if (! empty($data['starts_at']) && strtotime($data['starts_at']) >= strtotime($data['due_at'])) {
             throw ValidationException::withMessages(['due_at' => 'Hạn nộp phải sau ngày bắt đầu.']);
         }
@@ -545,8 +570,8 @@ class ApiController extends Controller
 
     public function games(Request $request): JsonResponse
     {
-        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1'], 'unassigned' => ['sometimes', 'boolean']]);
-        $rows = $this->access->assigned('games')->leftJoin('subjects', 'games.subject_id', '=', 'subjects.id')->select('games.*', 'subjects.name as subject_name')
+        $data = $request->validate(['subject_id' => ['nullable', 'integer', 'min:1'], 'unassigned' => ['sometimes', 'boolean'], 'grade' => ['nullable', 'string', 'max:40']]);
+        $rows = ContentGrade::filter($this->access->assigned('games')->leftJoin('subjects', 'games.subject_id', '=', 'subjects.id')->select('games.*', 'subjects.name as subject_name'), 'games.grade', $data['grade'] ?? null)
             ->when($data['subject_id'] ?? null, fn ($q, $id) => $q->where('games.subject_id', $id))
             ->when($request->boolean('unassigned'), fn ($q) => $q->whereNull('games.subject_id'))->orderByDesc('games.created_at')->get();
         foreach ($rows as $row) {
@@ -564,7 +589,7 @@ class ApiController extends Controller
     public function saveGame(Request $request): JsonResponse
     {
         $this->requireRole('admin', 'teacher');
-        $data = $request->validate(['title' => ['required', 'string', 'max:180'], ...$this->access->recipientRules(), 'subject_id' => ['nullable', 'integer', $this->access->exists('subjects')], 'type' => ['required', Rule::in(['quiz', 'true_false', 'matching', 'ordering', 'fill_blank', 'timed', 'word_builder', 'listening', 'challenge'])], 'graded' => ['boolean'], 'time_limit_seconds' => ['nullable', 'integer', 'min:10', 'max:3600'], 'due_at' => ['nullable', 'date'], 'allowed_attempts' => ['nullable', 'integer', 'between:0,100'], 'required_xp' => ['nullable', 'integer', 'between:0,100000'], 'level' => ['nullable', 'integer', 'between:1,100'], 'questions' => ['required', 'array', 'min:1', 'max:100'], 'questions.*.kind' => ['nullable', Rule::in(QuestionEngine::TYPES)], 'questions.*.media_url' => ['nullable', 'url:https', 'max:2048'], 'questions.*.prompt' => ['required', 'string'], 'questions.*.options' => ['present', 'array', 'max:100'], 'questions.*.answer' => ['required'], 'questions.*.topic' => ['nullable', 'string', 'max:100']]);
+        $data = $request->validate(['title' => ['required', 'string', 'max:180'], ...$this->access->recipientRules(), 'grade' => ['nullable', Rule::in(ContentGrade::GRADES)], 'subject_id' => ['nullable', 'integer', $this->access->exists('subjects')], 'type' => ['required', Rule::in(['quiz', 'true_false', 'matching', 'ordering', 'fill_blank', 'timed', 'word_builder', 'listening', 'challenge'])], 'graded' => ['boolean'], 'time_limit_seconds' => ['nullable', 'integer', 'min:10', 'max:3600'], 'due_at' => ['nullable', 'date'], 'allowed_attempts' => ['nullable', 'integer', 'between:0,100'], 'required_xp' => ['nullable', 'integer', 'between:0,100000'], 'level' => ['nullable', 'integer', 'between:1,100'], 'questions' => ['required', 'array', 'min:1', 'max:100'], 'questions.*.kind' => ['nullable', Rule::in(QuestionEngine::TYPES)], 'questions.*.media_url' => ['nullable', 'url:https', 'max:2048'], 'questions.*.prompt' => ['required', 'string'], 'questions.*.options' => ['present', 'array', 'max:100'], 'questions.*.answer' => ['required'], 'questions.*.topic' => ['nullable', 'string', 'max:100']]);
         $questions = $data['questions'];
         $students = $data['student_ids'];
         unset($data['questions'], $data['student_ids']);
