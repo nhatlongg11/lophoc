@@ -1,6 +1,21 @@
 name: eduquest-local
 
+# Fast startup probes require Docker Engine 25+ and Compose 2.20.2+.
+x-healthcheck: &healthcheck
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+  start_interval: 5s
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 x-php: &php
+  logging: *logging
   image: ${COMPOSE_PROJECT_NAME:-eduquest-local}-php
   build:
     context: .
@@ -8,9 +23,10 @@ x-php: &php
     target: app
   environment:
     APP_NAME: EduQuest
-    APP_ENV: ${APP_ENV:-local}
+    APP_ENV: ${APP_ENV:-production}
     APP_KEY: ${APP_KEY:?Run bash scripts/setup-docker.sh or set APP_KEY in .env}
     APP_DEBUG: "false"
+    LARAVEL_OPTIMIZE: ${LARAVEL_OPTIMIZE:-1}
     APP_URL: ${APP_URL:-http://localhost:8080}
     EDUQUEST_REGISTRATION_ORGANIZATION_ID: ${EDUQUEST_REGISTRATION_ORGANIZATION_ID:-1}
     EDUQUEST_PUBLIC_REGISTRATION_ENABLED: ${EDUQUEST_PUBLIC_REGISTRATION_ENABLED:-false}
@@ -26,6 +42,7 @@ x-php: &php
     SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-false}
     CACHE_STORE: redis
     QUEUE_CONNECTION: redis
+    REDIS_QUEUE_BLOCK_FOR: 5
     REDIS_CLIENT: phpredis
     REDIS_HOST: redis
     REDIS_PORT: 6379
@@ -53,6 +70,7 @@ x-php: &php
 
 services:
   postgres:
+    logging: *logging
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: eduquest
@@ -61,14 +79,12 @@ services:
     ports: ["127.0.0.1:${POSTGRES_PORT:-55432}:5432"]
     volumes: ["postgres_data:/var/lib/postgresql/data"]
     healthcheck:
+      <<: *healthcheck
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U eduquest -d eduquest"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 10s
     restart: unless-stopped
 
   db-setup:
+    logging: *logging
     image: postgres:17-alpine
     environment:
       PGHOST: postgres
@@ -92,18 +108,18 @@ services:
     restart: "no"
 
   redis:
+    logging: *logging
     image: redis:8-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports: ["127.0.0.1:${REDIS_PORT:-56379}:6379"]
     volumes: ["redis_data:/data"]
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
     restart: unless-stopped
 
   object-storage:
+    logging: *logging
     image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47}
     command: ["mini", "-dir=/data"]
     environment:
@@ -113,23 +129,19 @@ services:
     ports: ["127.0.0.1:${S3_PORT:-59000}:8333"]
     volumes: ["object_data:/data"]
     healthcheck:
+      <<: *healthcheck
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && nc -z 127.0.0.1 8333"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 20s
     restart: unless-stopped
 
   mailpit:
+    logging: *logging
     image: axllent/mailpit:latest
     ports:
       - "127.0.0.1:${MAILPIT_SMTP_PORT:-25125}:1025"
       - "127.0.0.1:${MAILPIT_UI_PORT:-58025}:8025"
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "/mailpit", "readyz"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
     restart: unless-stopped
 
   migrate:
@@ -147,14 +159,12 @@ services:
       redis: { condition: service_healthy }
       object-storage: { condition: service_healthy }
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
     restart: unless-stopped
 
   web:
+    logging: *logging
     build:
       context: .
       dockerfile: infrastructure/docker/Dockerfile
@@ -163,16 +173,13 @@ services:
     depends_on:
       app: { condition: service_healthy, restart: true }
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
     restart: unless-stopped
 
   worker:
     <<: *php
-    command: ["php", "artisan", "queue:work", "--sleep=1", "--tries=3", "--timeout=60", "--max-time=3600", "--no-interaction"]
+    command: ["php", "artisan", "queue:work", "--sleep=0", "--tries=3", "--timeout=60", "--max-time=3600", "--no-interaction"]
     depends_on: *app_dependencies
     stop_grace_period: 70s
     restart: unless-stopped

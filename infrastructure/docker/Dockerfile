@@ -3,7 +3,9 @@ WORKDIR /source/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=60000 --fetch-retries=2
 COPY frontend/ ./
-RUN npm run typecheck && npm run build
+COPY infrastructure/docker/precompress-assets.mjs /source/precompress-assets.mjs
+RUN npm run typecheck && npm run build \
+    && node /source/precompress-assets.mjs /source/backend/public/app
 
 FROM php:8.4-fpm-alpine AS app
 RUN apk add --no-cache icu-dev libzip-dev postgresql-dev sqlite-dev oniguruma-dev \
@@ -18,11 +20,13 @@ RUN COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --no-scripts --prefer-d
 COPY backend/ ./
 COPY --from=frontend /source/backend/public/app/ ./public/app/
 COPY infrastructure/docker/php.ini /usr/local/etc/php/conf.d/eduquest.ini
+COPY --chmod=755 infrastructure/docker/entrypoint.sh /usr/local/bin/eduquest-entrypoint
 RUN mkdir -p storage/app/private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
     && COMPOSER_ALLOW_SUPERUSER=1 composer dump-autoload --no-dev --optimize \
     && chown -R www-data:www-data storage bootstrap/cache
 USER www-data
 EXPOSE 9000
+ENTRYPOINT ["eduquest-entrypoint"]
 CMD ["php-fpm", "-F"]
 
 FROM nginx:stable-alpine AS web
