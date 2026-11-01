@@ -21,8 +21,10 @@ class RegistrationReviewTest extends TestCase
         return $user;
     }
 
-    public function test_registration_is_closed_by_default_and_existing_accounts_can_still_login(): void
+    public function test_registration_can_be_closed_and_existing_accounts_can_still_login(): void
     {
+        $this->getJson('/api/registration/status')->assertExactJson(['enabled' => true, 'approval_required' => true]);
+        config(['eduquest.public_registration_enabled' => false]);
         $user = User::factory()->create(['role' => 'teacher', 'password' => 'ExistingPassword123!']);
         $this->getJson('/api/registration/status')->assertExactJson(['enabled' => false, 'approval_required' => true]);
         $token = $this->getJson('/api/csrf')->json('token');
