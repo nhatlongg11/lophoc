@@ -75,6 +75,8 @@ Route::middleware('api.auth')->group(function () {
     Route::get('/reports/export', [ReportingController::class, 'export']);
     Route::post('/students/import', [EnrollmentController::class, 'import']);
     Route::get('/students/export', [EnrollmentController::class, 'export']);
+    Route::get('/class-code', [EnrollmentController::class, 'joinCode']);
+    Route::post('/class-code/refresh', [EnrollmentController::class, 'refreshJoinCode']);
     Route::get('/platform', [OrganizationController::class, 'platform']);
     Route::post('/platform/organizations', [OrganizationController::class, 'createOrganization']);
     Route::post('/platform/organizations/{id}/suspend', [OrganizationController::class, 'suspend']);

@@ -37,7 +37,7 @@ describe('registration is closed until explicitly enabled', () => {
     expect(fetcher.mock.calls.some(([path]) => path === '/api/register')).toBe(false)
   })
 
-  it.each(['student', 'teacher', 'parent'])('shows a pending message without auto-login for %s requests', async role => {
+  it.each(['teacher', 'parent'])('shows a pending message without auto-login for %s requests', async role => {
     const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       if (String(input).endsWith('/registration/status')) return json({ enabled: true, approval_required: true })
       if (String(input).endsWith('/csrf')) return json({ token: 'test-csrf' })
@@ -60,6 +60,47 @@ describe('registration is closed until explicitly enabled', () => {
     expect(fetcher.mock.calls.some(([path]) => path === '/api/login')).toBe(false)
     const registration = fetcher.mock.calls.find(([path]) => path === '/api/register')!
     expect(JSON.parse(String(registration[1]?.body))).toMatchObject({ role, parent_pin: role === 'parent' ? '629184' : null })
+  })
+
+  it('creates and activates a student account immediately', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      if (String(input).endsWith('/registration/status')) return json({ enabled: true, approval_required: true })
+      if (String(input).endsWith('/csrf')) return json({ token: 'test-csrf' })
+      return json({ message: 'Tài khoản đã được tạo. Bạn có thể đăng nhập ngay.', status: 'active', joined_class: false }, 201)
+    })
+    const onLogin = vi.fn()
+    render(<AuthScreen onLogin={onLogin}/>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Chưa có tài khoản? Đăng ký' }))
+    fireEvent.change(screen.getByLabelText('Họ và tên'), { target: { value: 'Nguyễn Như' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.test' } })
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: 'Registration123!' } })
+    fireEvent.change(screen.getByLabelText('Nhập lại mật khẩu'), { target: { value: 'Registration123!' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Tài khoản đã được tạo')
+    expect(screen.getByRole('button', { name: /Đăng nhập/ })).toBeVisible()
+    expect(onLogin).not.toHaveBeenCalled()
+    const registration = fetcher.mock.calls.find(([path]) => path === '/api/register')!
+    expect(JSON.parse(String(registration[1]?.body))).toMatchObject({ role: 'student', join_code: null })
+  })
+
+  it('prefills a class code from a join link and sends it with student registration', async () => {
+    window.history.replaceState({}, '', '/app/?join=abc12345')
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      if (String(input).endsWith('/registration/status')) return json({ enabled: true, approval_required: true })
+      if (String(input).endsWith('/csrf')) return json({ token: 'test-csrf' })
+      return json({ message: 'Tài khoản đã được tạo và tự động thêm vào lớp. Bạn có thể đăng nhập ngay.', status: 'active', joined_class: true }, 201)
+    })
+    render(<AuthScreen onLogin={vi.fn()}/>)
+    expect(await screen.findByLabelText('Mã lớp (nếu có)')).toHaveValue('ABC12345')
+    fireEvent.change(screen.getByLabelText('Họ và tên'), { target: { value: 'Nguyễn Như' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.test' } })
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: 'Registration123!' } })
+    fireEvent.change(screen.getByLabelText('Nhập lại mật khẩu'), { target: { value: 'Registration123!' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('tự động thêm vào lớp')
+    const registration = fetcher.mock.calls.find(([path]) => path === '/api/register')!
+    expect(JSON.parse(String(registration[1]?.body))).toMatchObject({ role: 'student', join_code: 'ABC12345' })
+    expect(window.location.search).toBe('')
   })
 })
 

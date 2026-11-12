@@ -29,23 +29,38 @@ class AccountController extends Controller
         if (is_string($request->input('email'))) {
             $request->merge(['email' => Str::lower(trim($request->input('email')))]);
         }
+        if (is_string($request->input('join_code'))) {
+            $request->merge(['join_code' => Str::upper(trim($request->input('join_code')))]);
+        }
         $data = $request->validate([
             'name' => ['required', 'string', 'max:160'],
             'email' => ['required', 'email', 'max:254'],
             'password' => ['required', 'string', 'confirmed', 'min:12', 'max:128'],
             'role' => ['required', 'string', Rule::in(['student', 'teacher', 'parent'])],
             'parent_pin' => ['required_if:role,parent', 'nullable', 'digits_between:6,12'],
+            'join_code' => ['exclude_unless:role,student', 'nullable', 'string', 'max:32'],
             'organization_id' => ['prohibited'],
             'student_id' => ['prohibited'],
             'student_ids' => ['prohibited'],
         ]);
-        $user = DB::transaction(function () use ($data): User {
-            $organization = DB::table('organizations')->where('id', config('eduquest.registration_organization_id'))->lockForUpdate()->first();
+        $joinedClass = false;
+        $user = DB::transaction(function () use ($data, &$joinedClass): User {
+            $teacher = null;
+            if (! empty($data['join_code'])) {
+                $teacher = User::where('join_code', $data['join_code'])->where('role', 'teacher')->where('active', true)->where(function ($query): void {
+                    $query->whereNull('registration_status')->orWhere('registration_status', 'approved');
+                })->lockForUpdate()->first();
+                if (! $teacher) {
+                    throw ValidationException::withMessages(['join_code' => 'Mã lớp không hợp lệ hoặc đã được thay đổi. Vui lòng kiểm tra lại.']);
+                }
+            }
+            $organization = DB::table('organizations')->where('id', $teacher?->organization_id ?? config('eduquest.registration_organization_id'))->lockForUpdate()->first();
             abort_unless($organization && $organization->subscription_status === 'active', 422, 'Hệ thống hiện chưa nhận đăng ký. Vui lòng thử lại sau.');
             if (User::whereRaw('LOWER(email) = ?', [$data['email']])->exists()) {
                 throw ValidationException::withMessages(['email' => 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc đặt lại mật khẩu.']);
             }
             $role = $data['role'] === 'parent' ? 'family' : $data['role'];
+            $immediate = $role === 'student';
             if ($role !== 'family') {
                 $limit = $role === 'student' ? $organization->max_students : $organization->max_teachers;
                 abort_if(User::where('organization_id', $organization->id)->where('role', $role)->where('active', true)->count() >= $limit, 422, 'Hệ thống đã đạt giới hạn tài khoản cho vai trò này. Vui lòng liên hệ quản trị viên.');
@@ -56,16 +71,24 @@ class AccountController extends Controller
                 'email' => $data['email'],
                 'password' => $data['password'],
                 'role' => $role,
-                'active' => false,
+                'active' => $immediate,
                 'parent_pin_hash' => $role === 'family' ? Hash::make($data['parent_pin']) : null,
             ]);
-            $user->forceFill(['registration_status' => 'pending'])->save();
-            DB::table('audit_logs')->insert(['organization_id' => $organization->id, 'actor_id' => $user->id, 'action' => 'registration_requested', 'entity_type' => 'user', 'entity_id' => $user->id, 'created_at' => now(), 'updated_at' => now()]);
+            $user->forceFill(['registration_status' => $immediate ? null : 'pending'])->save();
+            if ($teacher) {
+                $joinedClass = true;
+                DB::table('teacher_students')->insertOrIgnore(['organization_id' => $organization->id, 'teacher_id' => $teacher->id, 'student_id' => $user->id]);
+            }
+            DB::table('audit_logs')->insert(['organization_id' => $organization->id, 'actor_id' => $user->id, 'action' => $joinedClass ? 'registration_joined_class' : ($immediate ? 'registration_created' : 'registration_requested'), 'entity_type' => 'user', 'entity_id' => $user->id, 'created_at' => now(), 'updated_at' => now()]);
 
             return $user;
         });
 
-        return response()->json(['message' => 'Đã gửi yêu cầu đăng ký. Vui lòng chờ quản trị viên duyệt trước khi đăng nhập.', 'email' => $user->email, 'status' => 'pending'], 201);
+        $message = $user->registration_status === null
+            ? ($joinedClass ? 'Tài khoản đã được tạo và tự động thêm vào lớp. Bạn có thể đăng nhập ngay.' : 'Tài khoản đã được tạo. Bạn có thể đăng nhập ngay.')
+            : 'Đã gửi yêu cầu đăng ký. Vui lòng chờ quản trị viên duyệt trước khi đăng nhập.';
+
+        return response()->json(['message' => $message, 'email' => $user->email, 'status' => $user->registration_status ?? 'active', 'joined_class' => $joinedClass], 201);
     }
 
     public function registrations(): JsonResponse

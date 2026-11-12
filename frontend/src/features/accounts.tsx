@@ -22,7 +22,7 @@ import {
 export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
   const params = new URLSearchParams(window.location.search);
   const registration = useResource<{ enabled: boolean; approval_required: boolean }>("/registration/status");
-  const requestedRegistration = params.has("register") && !params.has("invite") && !params.has("reset");
+  const requestedRegistration = (params.has("register") || params.has("join")) && !params.has("invite") && !params.has("reset");
   const [mode, setMode] = useState(
     params.has("invite") ? "invite" : params.has("reset") ? "reset" : "login",
   );
@@ -33,6 +33,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
     [password, setPassword] = useState(""),
     [name, setName] = useState(""),
     [pin, setPin] = useState(""),
+    [classCode, setClassCode] = useState((params.get("join") || "").toUpperCase()),
     [role, setRole] = useState("student");
   const [confirmation, setConfirmation] = useState(""),
     [busy, setBusy] = useState(false),
@@ -60,13 +61,22 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
       } else if (mode === "register") {
         const result = await api<{ message: string }>("/register", {
           method: "POST",
-          body: { name, email, password, password_confirmation: confirmation, role, parent_pin: role === "parent" ? pin : null },
+          body: {
+            name,
+            email,
+            password,
+            password_confirmation: confirmation,
+            role,
+            parent_pin: role === "parent" ? pin : null,
+            join_code: role === "student" ? classCode.trim().toUpperCase() || null : null,
+          },
         });
         setMode("login");
         setEmail(email.trim().toLowerCase());
         setPassword("");
         setConfirmation("");
         setPin("");
+        setClassCode("");
         setMessage(result.message);
         window.history.replaceState({}, "", window.location.pathname);
       } else if (mode === "forgot") {
@@ -175,6 +185,18 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
             </label>
           )}
           {mode === "register" && <label>Vai trò<select value={role} onChange={e => setRole(e.target.value)}><option value="student">Học sinh</option><option value="teacher">Giáo viên</option><option value="parent">Phụ huynh</option></select></label>}
+          {mode === "register" && role === "student" && (
+            <label>
+              Mã lớp (nếu có)
+              <input
+                value={classCode}
+                onChange={(e) => setClassCode(e.target.value.toUpperCase())}
+                placeholder="Ví dụ: AB12CD34"
+                autoComplete="off"
+                maxLength={32}
+              />
+            </label>
+          )}
           {(mode === "invite" || mode === "register" && role === "parent") && (
             <label>
               PIN phụ huynh (tài khoản gia đình)
@@ -191,7 +213,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
               />
             </label>
           )}
-          {mode === "register" && <p className="muted">Mật khẩu tối thiểu 12 ký tự. Tài khoản cần được quản trị viên duyệt trước khi đăng nhập.{role === "parent" && " Quản trị viên sẽ liên kết tài khoản với học sinh để bạn xem thông tin của con."}</p>}
+          {mode === "register" && <p className="muted">{role === "student" ? "Tài khoản học sinh được kích hoạt ngay sau khi tạo. Nhập mã lớp để tự động được thêm vào lớp của giáo viên." : "Mật khẩu tối thiểu 12 ký tự. Tài khoản giáo viên và phụ huynh cần được quản trị viên duyệt trước khi đăng nhập." + (role === "parent" ? " Quản trị viên sẽ liên kết tài khoản với học sinh để bạn xem thông tin của con." : "")}</p>}
           <ErrorBox message={error} />
           {message && (
             <p className="success-box" role="status">
@@ -210,7 +232,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
                   forgot: "Gửi hướng dẫn",
                   reset: "Lưu mật khẩu",
                   invite: "Tạo tài khoản",
-                  register: "Gửi yêu cầu đăng ký",
+                  register: role === "student" ? "Tạo tài khoản" : "Gửi yêu cầu đăng ký",
                 }[mode]}
           </Button>
         </form>

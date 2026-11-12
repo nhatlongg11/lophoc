@@ -11,7 +11,7 @@ test('closed registration stays hidden even when opened directly', async ({ page
   await expect(page.getByLabel('Họ và tên', { exact: true })).toHaveCount(0)
 })
 
-for (const role of ['student', 'teacher', 'parent']) {
+for (const role of ['teacher', 'parent']) {
   test('an enabled registration form submits a ' + role + ' request without automatic login', async ({ page }) => {
     let logins = 0
     await page.route('**/api/me', route => route.fulfill({ status: 401, json: {} }))
@@ -36,6 +36,27 @@ for (const role of ['student', 'teacher', 'parent']) {
     expect(logins).toBe(0)
   })
 }
+
+test('a student account is activated immediately and can carry a class code from the join link', async ({ page }) => {
+  let submitted: Record<string, unknown> = {}
+  await page.route('**/api/me', route => route.fulfill({ status: 401, json: {} }))
+  await page.route('**/api/csrf', route => route.fulfill({ json: { token: 'browser-csrf' } }))
+  await page.route('**/api/registration/status', route => route.fulfill({ json: { enabled: true, approval_required: true } }))
+  await page.route('**/api/register', route => {
+    submitted = route.request().postDataJSON()
+    return route.fulfill({ status: 201, json: { message: 'Tài khoản đã được tạo và tự động thêm vào lớp. Bạn có thể đăng nhập ngay.', status: 'active', joined_class: true } })
+  })
+  await page.goto('/app/?join=abc12345')
+  await page.getByLabel('Họ và tên', { exact: true }).fill('Như học sinh')
+  await page.getByLabel('Email', { exact: true }).fill('browser-student@example.test')
+  await page.getByLabel('Mật khẩu', { exact: true }).fill('Registration123!')
+  await page.getByLabel('Nhập lại mật khẩu', { exact: true }).fill('Registration123!')
+  await expect(page.getByLabel('Mã lớp (nếu có)', { exact: true })).toHaveValue('ABC12345')
+  await page.getByRole('button', { name: 'Tạo tài khoản', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('tự động thêm vào lớp')
+  expect(submitted).toMatchObject({ role: 'student', join_code: 'ABC12345' })
+  await expect(page.getByRole('button', { name: 'Đăng nhập', exact: true })).toBeVisible()
+})
 
 test('a material preview renders on HTTPS behind an HTTP proxy and reports rejected links', async ({ page, context, baseURL }) => {
   test.setTimeout(90_000)

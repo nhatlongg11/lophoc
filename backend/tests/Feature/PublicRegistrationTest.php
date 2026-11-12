@@ -38,15 +38,33 @@ class PublicRegistrationTest extends TestCase
         $this->withHeader('X-CSRF-TOKEN', $token);
     }
 
-    #[TestWith(['student'])]
-    #[TestWith(['teacher'])]
-    public function test_people_can_request_an_account_and_only_login_after_admin_approval(string $role): void
+    public function test_students_can_create_an_account_and_login_immediately(): void
     {
         $this->csrf();
-        $payload = [...$this->payload($role), 'email' => 'New@Example.Test', 'active' => true, 'registration_status' => 'approved', 'registration_reviewed_by' => 1, 'email_verified_at' => now()->toDateTimeString()];
-        $this->postJson('/api/register', $payload)->assertCreated()->assertJsonPath('email', 'new@example.test')->assertJsonMissingPath('password');
+        $payload = [...$this->payload('student'), 'email' => 'New@Example.Test', 'active' => false, 'registration_status' => 'pending', 'registration_reviewed_by' => 1, 'email_verified_at' => now()->toDateTimeString()];
+        $this->postJson('/api/register', $payload)->assertCreated()->assertJsonPath('email', 'new@example.test')->assertJsonPath('status', 'active')->assertJsonPath('joined_class', false)->assertJsonMissingPath('password');
         $user = User::where('email', 'new@example.test')->firstOrFail();
-        $this->assertSame($role, $user->role);
+        $this->assertSame('student', $user->role);
+        $this->assertSame(1, $user->organization_id);
+        $this->assertTrue($user->active);
+        $this->assertNull($user->registration_status);
+        $this->assertNull($user->registration_reviewed_by);
+        $this->assertNull($user->email_verified_at);
+        $this->assertTrue(Hash::check($payload['password'], $user->password));
+        $this->assertDatabaseHas('audit_logs', ['actor_id' => $user->id, 'action' => 'registration_created']);
+        $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertOk()->assertJsonPath('user.role', 'student');
+        $this->getJson('/api/me')->assertOk()->assertJsonPath('id', $user->id);
+        $this->getJson('/api/organization')->assertForbidden();
+        $this->getJson('/api/platform')->assertForbidden();
+    }
+
+    public function test_teachers_still_need_admin_approval_before_login(): void
+    {
+        $this->csrf();
+        $payload = [...$this->payload('teacher'), 'email' => 'New@Example.Test', 'active' => true, 'registration_status' => 'approved', 'registration_reviewed_by' => 1, 'email_verified_at' => now()->toDateTimeString()];
+        $this->postJson('/api/register', $payload)->assertCreated()->assertJsonPath('email', 'new@example.test')->assertJsonPath('status', 'pending')->assertJsonMissingPath('password');
+        $user = User::where('email', 'new@example.test')->firstOrFail();
+        $this->assertSame('teacher', $user->role);
         $this->assertSame(1, $user->organization_id);
         $this->assertFalse($user->active);
         $this->assertSame('pending', $user->registration_status);
@@ -57,10 +75,55 @@ class PublicRegistrationTest extends TestCase
         $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertForbidden();
         $this->assertDatabaseCount('api_tokens', 0);
         $this->approve($user);
-        $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertOk()->assertJsonPath('user.role', $role);
+        $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertOk()->assertJsonPath('user.role', 'teacher');
         $this->getJson('/api/me')->assertOk()->assertJsonPath('id', $user->id);
         $this->getJson('/api/organization')->assertForbidden();
         $this->getJson('/api/platform')->assertForbidden();
+    }
+
+    public function test_students_join_a_teachers_class_with_a_code_and_are_added_immediately(): void
+    {
+        $teacher = User::factory()->create(['role' => 'teacher', 'join_code' => 'CLASS123']);
+        $this->csrf();
+        $this->postJson('/api/register', [...$this->payload('student'), 'join_code' => 'class123'])->assertCreated()->assertJsonPath('status', 'active')->assertJsonPath('joined_class', true);
+        $student = User::where('email', 'new@example.test')->firstOrFail();
+        $this->assertTrue($student->active);
+        $this->assertNull($student->registration_status);
+        $this->assertDatabaseHas('teacher_students', ['organization_id' => 1, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
+        $this->assertDatabaseHas('audit_logs', ['actor_id' => $student->id, 'action' => 'registration_joined_class']);
+        $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => 'Registration123!'])->assertOk()->assertJsonPath('user.role', 'student');
+    }
+
+    public function test_class_code_registers_the_student_in_the_teachers_organization_and_invalid_codes_are_rejected(): void
+    {
+        $other = DB::table('organizations')->insertGetId(['name' => 'Other', 'slug' => 'other-class-code']);
+        $teacher = User::factory()->create(['role' => 'teacher', 'organization_id' => $other, 'join_code' => 'OTHER123']);
+        $this->csrf();
+        $this->postJson('/api/register', [...$this->payload('student'), 'join_code' => 'OTHER123'])->assertCreated()->assertJsonPath('status', 'active');
+        $student = User::where('email', 'new@example.test')->firstOrFail();
+        $this->assertSame($other, $student->organization_id);
+        $this->assertDatabaseHas('teacher_students', ['organization_id' => $other, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
+        DB::table('organizations')->where('id', $other)->update(['max_students' => 1]);
+        $this->postJson('/api/register', [...$this->payload('student'), 'email' => 'second@example.test', 'join_code' => 'OTHER123'])->assertUnprocessable();
+        $this->postJson('/api/register', [...$this->payload('student'), 'email' => 'invalid@example.test', 'join_code' => 'NOPE'])->assertUnprocessable()->assertJsonValidationErrors('join_code');
+        $this->assertDatabaseMissing('users', ['email' => 'invalid@example.test']);
+    }
+
+    public function test_inactive_teachers_cannot_receive_students_through_a_class_code(): void
+    {
+        User::factory()->create(['role' => 'teacher', 'active' => false, 'join_code' => 'INACTIVE']);
+        $this->csrf();
+        $this->postJson('/api/register', [...$this->payload('student'), 'join_code' => 'INACTIVE'])->assertUnprocessable()->assertJsonValidationErrors('join_code');
+        $this->assertDatabaseMissing('users', ['email' => 'new@example.test']);
+    }
+
+    public function test_approved_teachers_can_receive_students_through_their_class_code(): void
+    {
+        $teacher = User::factory()->create(['role' => 'teacher', 'join_code' => 'APPROVED']);
+        $teacher->forceFill(['registration_status' => 'approved'])->save();
+        $this->csrf();
+        $this->postJson('/api/register', [...$this->payload('student'), 'join_code' => 'APPROVED'])->assertCreated()->assertJsonPath('joined_class', true);
+        $this->assertDatabaseHas('teacher_students', ['teacher_id' => $teacher->id, 'student_id' => User::where('email', 'new@example.test')->value('id')]);
     }
 
     public function test_parent_registers_with_a_private_pin_and_cannot_access_unlinked_children(): void

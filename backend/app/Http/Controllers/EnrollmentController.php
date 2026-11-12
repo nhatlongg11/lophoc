@@ -16,6 +16,45 @@ class EnrollmentController extends Controller
 {
     public function __construct(private LearningAccess $access, private RosterImporter $importer) {}
 
+    public function joinCode(): JsonResponse
+    {
+        $this->access->requireRole('teacher');
+        $user = $this->access->user();
+        if (! $user->join_code) {
+            $this->access->table('users')->where('id', $user->id)->update(['join_code' => $this->uniqueJoinCode()]);
+            $user->refresh();
+        }
+
+        return response()->json($this->joinCodePayload($user->join_code));
+    }
+
+    public function refreshJoinCode(): JsonResponse
+    {
+        $this->access->requireRole('teacher');
+        $code = $this->uniqueJoinCode();
+        $this->access->table('users')->where('id', $this->access->user()->id)->update(['join_code' => $code]);
+        $this->access->audit('class_code_refreshed', 'user', $this->access->user()->id);
+
+        return response()->json($this->joinCodePayload($code));
+    }
+
+    private function uniqueJoinCode(): string
+    {
+        do {
+            $code = Str::upper(Str::random(8));
+        } while (User::where('join_code', $code)->exists());
+
+        return $code;
+    }
+
+    /**
+     * @return array{code: string, url: string}
+     */
+    private function joinCodePayload(string $code): array
+    {
+        return ['code' => $code, 'url' => rtrim(config('app.url'), '/').'/app/?join='.$code];
+    }
+
     public function import(Request $request): JsonResponse
     {
         $this->access->requireRole('admin');
