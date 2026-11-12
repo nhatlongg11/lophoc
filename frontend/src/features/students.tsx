@@ -5,6 +5,7 @@ import { Button, Empty, ErrorBox, PageHead, Panel, Skeleton, useResource, type N
 
 function ClassJoinCode({ notify }: { notify: Notify }) {
   const { data, error, loading, reload } = useResource<{ code: string; url: string }>('/class-code')
+  const joinUrl = data ? `${window.location.origin}/app/?join=${data.code}` : ''
   const [busy, setBusy] = useState(false)
   async function copy(value: string) {
     try {
@@ -33,11 +34,11 @@ function ClassJoinCode({ notify }: { notify: Notify }) {
     {loading ? <Skeleton/> : data && <>
       <div className="form-grid">
         <label>Mã lớp<input readOnly value={data.code} onFocus={event => event.currentTarget.select()}/></label>
-        <label>Liên kết tham gia<input readOnly value={data.url} onFocus={event => event.currentTarget.select()}/></label>
+        <label>Liên kết tham gia<input readOnly value={joinUrl} onFocus={event => event.currentTarget.select()}/></label>
       </div>
       <div className="form-actions">
         <Button secondary onClick={() => void copy(data.code)}>Sao chép mã</Button>
-        <Button secondary onClick={() => void copy(data.url)}>Sao chép liên kết</Button>
+        <Button secondary onClick={() => void copy(joinUrl)}>Sao chép liên kết</Button>
       </div>
     </>}
   </Panel>

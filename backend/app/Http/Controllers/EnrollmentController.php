@@ -52,7 +52,7 @@ class EnrollmentController extends Controller
      */
     private function joinCodePayload(string $code): array
     {
-        return ['code' => $code, 'url' => rtrim(config('app.url'), '/').'/app/?join='.$code];
+        return ['code' => $code, 'url' => url('/app').'/?join='.$code];
     }
 
     public function import(Request $request): JsonResponse
