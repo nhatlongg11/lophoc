@@ -1,11 +1,48 @@
+import { useState } from 'react'
 import { Icon } from '../components/Icon'
 import { Button, Empty, ErrorBox, Panel, Skeleton, displayDate, useResource, type User } from '../components/ui'
 import { QuestArt } from '../components/QuestArt'
 import { DashboardInsights } from './reports'
+import { api } from '../api'
 
 type DashboardData = { students: number; pending_assignments: number; assignments: number; submissions: number; notifications: number; upcoming_lessons: { id: number; title: string; room?: string; starts_at: string }[]; due_assignments: { id: number; title: string; due_at: string }[] }
+
+function StudentClasses({ onJoined }: { onJoined: () => void }) {
+  const classes = useResource<{ id: number; name: string }[]>('/class-memberships')
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  async function join(event: React.FormEvent) {
+    event.preventDefault()
+    if (!code.trim() || busy) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const result = await api<{ message: string }>('/class-memberships', { method: 'POST', body: { code: code.trim().toUpperCase() } })
+      setMessage(result.message)
+      setCode('')
+      classes.reload()
+      onJoined()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <Panel title="Lớp của em" action={<Icon name="students"/>}>
+    <p>Nhập mã lớp giáo viên đã chia sẻ để tham gia lớp. Sau khi tham gia, bài tập và lịch học của lớp sẽ xuất hiện trong tài khoản của em.</p>
+    <form className="stack-form" onSubmit={join}>
+      <label>Mã lớp<input value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="Ví dụ: AB12CD34" autoComplete="off" maxLength={32} required/></label>
+      <Button disabled={busy || !code.trim()}>{busy ? 'Đang tham gia…' : 'Tham gia lớp'}</Button>
+    </form>
+    <ErrorBox message={classes.error || error}/>
+    {message && <p className="success-box" role="status">{message}</p>}
+    {classes.loading ? <Skeleton/> : classes.data?.length ? <div>{classes.data.map(item => <div className="list-row" key={item.id}><span className="list-icon"><Icon name="students"/></span><div><strong>{item.name}</strong><small>Giáo viên phụ trách</small></div></div>)}</div> : !classes.error && <Empty>Em chưa tham gia lớp nào.</Empty>}
+  </Panel>
+}
+
 export function LearningDashboard({ user, open }: { user: User; open: (page: string) => void }) {
-  const { data, error, loading } = useResource<DashboardData>('/dashboard')
+  const { data, error, loading, reload: reloadDashboard } = useResource<DashboardData>('/dashboard')
   const student = user.role === 'student'
   const actions: [string, import('../components/Icon').IconName, string][] = student ? [['assignments', 'assignments', 'Bài tập của em'], ['games', 'games', 'Khám phá trò chơi'], ['schedule', 'schedule', 'Xem lịch học'], ['reports', 'reports', 'Tiến bộ của em']] : [['assignments', 'assignments', 'Tạo bài tập'], ['students', 'students', 'Học sinh'], ['attendance', 'attendance', 'Điểm danh'], ['games', 'games', 'Tạo vòng chơi'], ['resources', 'resources', 'Thêm học liệu'], ['reports', 'reports', 'Xem báo cáo']]
   return <>
@@ -14,6 +51,7 @@ export function LearningDashboard({ user, open }: { user: User; open: (page: str
       <QuestArt variant={student ? 'planet' : 'book'}/><span className="hero-sticker">HỌC HỎI<br/>MỖI NGÀY!</span>
     </section><ErrorBox message={error}/>
     <div className="quick-actions" aria-label="Thao tác nhanh">{actions.map(([page, icon, label]) => <button key={page} onClick={() => open(page)}><span aria-hidden="true"><Icon name={icon}/></span>{label}</button>)}</div>
+    {student && <div className="student-classes"><StudentClasses onJoined={reloadDashboard}/></div>}
     {loading ? <Skeleton/> : <div className="metric-grid"><article className="metric mint"><span aria-hidden="true"><Icon name="students"/></span><small>{student ? 'Bài tập chưa hoàn thành' : 'Học sinh'}</small><strong>{(student ? data?.pending_assignments : data?.students) ?? '—'}</strong></article><article className="metric sky"><span aria-hidden="true"><Icon name="check"/></span><small>Bài tập được giao</small><strong>{data?.assignments ?? '—'}</strong></article><article className="metric peach"><span aria-hidden="true"><Icon name="clock"/></span><small>Bài tập đã hoàn thành</small><strong>{data?.submissions ?? '—'}</strong></article><article className="metric lemon"><span aria-hidden="true"><Icon name="communication"/></span><small>Thông báo mới</small><strong>{data?.notifications ?? '—'}</strong></article></div>}
     <div className="two-col"><Panel title="Lịch hẹn với kiến thức" action={<button className="text-link" onClick={() => open('schedule')}>Xem lịch <Icon name="arrow_right"/></button>}>{data?.upcoming_lessons.length ? data.upcoming_lessons.map(l => <div className="list-row" key={l.id}><span className="list-icon"><Icon name="schedule"/></span><div><strong>{l.title}</strong><small>Phòng {l.room || 'chưa xếp'}</small></div><time>{displayDate(l.starts_at)}</time></div>) : <Empty>Chưa có tiết học sắp tới.</Empty>}</Panel><Panel title="Nhiệm vụ sắp đến hạn" action={<button className="text-link" onClick={() => open('assignments')}>Xem bài tập <Icon name="arrow_right"/></button>}>{data?.due_assignments.length ? data.due_assignments.map(a => <div className="list-row" key={a.id}><span className="list-icon coral"><Icon name="check"/></span><div><strong>{a.title}</strong><small>Hạn nộp {displayDate(a.due_at)}</small></div><span className="pill warning">Sắp đến hạn</span></div>) : <Empty>Chưa có bài tập sắp hết hạn.</Empty>}</Panel></div><DashboardInsights/>
   </>

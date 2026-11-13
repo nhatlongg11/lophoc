@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EnrollmentController extends Controller
@@ -53,6 +54,53 @@ class EnrollmentController extends Controller
     private function joinCodePayload(string $code): array
     {
         return ['code' => $code, 'url' => url('/app').'/?join='.$code];
+    }
+
+    public function studentClasses(): JsonResponse
+    {
+        $this->access->requireRole('student');
+        $classes = $this->access->table('teacher_students')
+            ->join('users', 'teacher_students.teacher_id', '=', 'users.id')
+            ->where('teacher_students.student_id', $this->access->user()->id)
+            ->where('users.organization_id', $this->access->user()->organization_id)
+            ->where('users.role', 'teacher')
+            ->where('users.active', true)
+            ->where(function ($query): void {
+                $query->whereNull('users.registration_status')->orWhere('users.registration_status', 'approved');
+            })
+            ->orderBy('users.name')
+            ->select('users.id', 'users.name')
+            ->get();
+
+        return response()->json($classes);
+    }
+
+    public function joinClass(Request $request): JsonResponse
+    {
+        $this->access->requireRole('student');
+        $data = $request->validate(['code' => ['required', 'string', 'max:32']]);
+        $student = $this->access->user();
+        $teacher = User::where('join_code', Str::upper(trim($data['code'])))
+            ->where('organization_id', $student->organization_id)
+            ->where('role', 'teacher')
+            ->where('active', true)
+            ->where(function ($query): void {
+                $query->whereNull('registration_status')->orWhere('registration_status', 'approved');
+            })
+            ->first();
+        if (! $teacher) {
+            throw ValidationException::withMessages(['code' => 'Mã lớp không hợp lệ hoặc đã được thay đổi. Vui lòng kiểm tra lại.']);
+        }
+        $joined = $this->access->table('teacher_students')->insertOrIgnore(['teacher_id' => $teacher->id, 'student_id' => $student->id]) > 0;
+        if ($joined) {
+            $this->access->audit('class_joined', 'user', $student->id, null, ['teacher_id' => $teacher->id]);
+        }
+
+        return response()->json([
+            'message' => $joined ? 'Đã tham gia lớp của '.$teacher->name.'.' : 'Em đã tham gia lớp này rồi.',
+            'joined' => $joined,
+            'teacher' => ['id' => $teacher->id, 'name' => $teacher->name],
+        ], $joined ? 201 : 200);
     }
 
     public function import(Request $request): JsonResponse

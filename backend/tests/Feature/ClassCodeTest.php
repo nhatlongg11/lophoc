@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\EduQuestFixtures;
 use Tests\TestCase;
 
@@ -59,5 +60,45 @@ class ClassCodeTest extends TestCase
         $this->eduAs($second);
         $secondCode = $this->getJson('/api/class-code')->json('code');
         $this->assertNotSame($firstCode, $secondCode);
+    }
+
+    public function test_students_can_join_and_list_classes_after_registration(): void
+    {
+        $teacher = User::factory()->create(['role' => 'teacher', 'join_code' => 'JOIN1234']);
+        $teacher->forceFill(['registration_status' => 'approved'])->save();
+        $student = User::factory()->create(['role' => 'student']);
+        $this->eduAs($student);
+        $this->getJson('/api/class-memberships')->assertOk()->assertExactJson([]);
+        $this->postJson('/api/class-memberships', ['code' => 'join1234'])->assertCreated()->assertJsonPath('joined', true)->assertJsonPath('teacher.id', $teacher->id);
+        $this->assertDatabaseHas('teacher_students', ['organization_id' => 1, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'class_joined', 'actor_id' => $student->id, 'entity_id' => $student->id]);
+        $this->getJson('/api/class-memberships')->assertOk()->assertJsonCount(1)->assertJsonPath('0.id', $teacher->id)->assertJsonPath('0.name', $teacher->name);
+        $this->postJson('/api/class-memberships', ['code' => 'JOIN1234'])->assertOk()->assertJsonPath('joined', false);
+    }
+
+    public function test_students_cannot_join_invalid_or_other_organization_classes(): void
+    {
+        $other = DB::table('organizations')->insertGetId(['name' => 'Other', 'slug' => 'other-membership']);
+        $foreign = User::factory()->create(['role' => 'teacher', 'organization_id' => $other, 'join_code' => 'FOREIGN1']);
+        $inactive = User::factory()->create(['role' => 'teacher', 'active' => false, 'join_code' => 'INACTIVE']);
+        $student = User::factory()->create(['role' => 'student']);
+        $this->eduAs($student);
+        $this->postJson('/api/class-memberships', ['code' => 'NOPE'])->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->postJson('/api/class-memberships', ['code' => 'FOREIGN1'])->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->postJson('/api/class-memberships', ['code' => 'INACTIVE'])->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->assertDatabaseMissing('teacher_students', ['teacher_id' => $foreign->id, 'student_id' => $student->id]);
+        $this->assertDatabaseMissing('teacher_students', ['teacher_id' => $inactive->id, 'student_id' => $student->id]);
+    }
+
+    public function test_only_students_can_list_or_join_classes(): void
+    {
+        $this->getJson('/api/class-memberships')->assertUnauthorized();
+        $this->postJson('/api/class-memberships', ['code' => 'ABC12345'])->assertUnauthorized();
+        $this->eduAs(User::factory()->create(['role' => 'teacher']));
+        $this->getJson('/api/class-memberships')->assertForbidden();
+        $this->postJson('/api/class-memberships', ['code' => 'ABC12345'])->assertForbidden();
+        $this->eduAs(User::factory()->create(['role' => 'admin']));
+        $this->getJson('/api/class-memberships')->assertForbidden();
+        $this->postJson('/api/class-memberships', ['code' => 'ABC12345'])->assertForbidden();
     }
 }
