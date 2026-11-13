@@ -49,7 +49,7 @@ class PublicRegistrationTest extends TestCase
         $this->assertTrue($user->active);
         $this->assertNull($user->registration_status);
         $this->assertNull($user->registration_reviewed_by);
-        $this->assertNull($user->email_verified_at);
+        $this->assertNotNull($user->email_verified_at);
         $this->assertTrue(Hash::check($payload['password'], $user->password));
         $this->assertDatabaseHas('audit_logs', ['actor_id' => $user->id, 'action' => 'registration_created']);
         $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertOk()->assertJsonPath('user.role', 'student');
@@ -75,6 +75,7 @@ class PublicRegistrationTest extends TestCase
         $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertForbidden();
         $this->assertDatabaseCount('api_tokens', 0);
         $this->approve($user);
+        $this->assertNotNull($user->fresh()->email_verified_at);
         $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => $payload['password']])->assertOk()->assertJsonPath('user.role', 'teacher');
         $this->getJson('/api/me')->assertOk()->assertJsonPath('id', $user->id);
         $this->getJson('/api/organization')->assertForbidden();
@@ -92,6 +93,20 @@ class PublicRegistrationTest extends TestCase
         $this->assertDatabaseHas('teacher_students', ['organization_id' => 1, 'teacher_id' => $teacher->id, 'student_id' => $student->id]);
         $this->assertDatabaseHas('audit_logs', ['actor_id' => $student->id, 'action' => 'registration_joined_class']);
         $this->postJson('/api/login', ['email' => 'new@example.test', 'password' => 'Registration123!'])->assertOk()->assertJsonPath('user.role', 'student');
+    }
+
+    public function test_active_self_registered_students_cannot_be_overwritten_by_an_invitation(): void
+    {
+        $this->csrf();
+        $this->postJson('/api/register', [...$this->payload('student'), 'email' => 'student@example.test'])->assertCreated();
+        $this->eduAs(User::factory()->create(['role' => 'admin']));
+        $url = $this->postJson('/api/invitations', ['email' => 'student@example.test', 'role' => 'student'])->assertCreated()->json('url');
+        parse_str(parse_url($url, PHP_URL_QUERY), $query);
+        $this->withHeader('Authorization', '');
+        $this->postJson('/api/invitations/accept', ['token' => $query['invite'], 'name' => 'Người khác', 'password' => 'Invitation123!', 'password_confirmation' => 'Invitation123!'])->assertUnprocessable();
+        $student = User::where('email', 'student@example.test')->firstOrFail();
+        $this->assertSame('Nguyễn Như', $student->name);
+        $this->assertTrue(Hash::check('Registration123!', $student->password));
     }
 
     public function test_class_code_registers_the_student_in_the_teachers_organization_and_invalid_codes_are_rejected(): void
@@ -112,9 +127,19 @@ class PublicRegistrationTest extends TestCase
     public function test_inactive_teachers_cannot_receive_students_through_a_class_code(): void
     {
         User::factory()->create(['role' => 'teacher', 'active' => false, 'join_code' => 'INACTIVE']);
+        $pending = User::factory()->create(['role' => 'teacher', 'active' => false, 'join_code' => 'PENDING1']);
+        $pending->forceFill(['registration_status' => 'pending'])->save();
         $this->csrf();
         $this->postJson('/api/register', [...$this->payload('student'), 'join_code' => 'INACTIVE'])->assertUnprocessable()->assertJsonValidationErrors('join_code');
+        $this->postJson('/api/register', [...$this->payload('student'), 'join_code' => 'PENDING1'])->assertUnprocessable()->assertJsonValidationErrors('join_code');
         $this->assertDatabaseMissing('users', ['email' => 'new@example.test']);
+    }
+
+    public function test_an_invalid_code_is_not_silently_treated_as_no_code(): void
+    {
+        $this->csrf();
+        $this->postJson('/api/register', [...$this->payload('student'), 'join_code' => '0'])->assertUnprocessable()->assertJsonValidationErrors('join_code');
+        $this->assertDatabaseCount('users', 0);
     }
 
     public function test_approved_teachers_can_receive_students_through_their_class_code(): void

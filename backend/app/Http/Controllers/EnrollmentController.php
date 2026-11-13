@@ -15,18 +15,23 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class EnrollmentController extends Controller
 {
+    private const JOIN_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
     public function __construct(private LearningAccess $access, private RosterImporter $importer) {}
 
     public function joinCode(): JsonResponse
     {
         $this->access->requireRole('teacher');
-        $user = $this->access->user();
-        if (! $user->join_code) {
-            $this->access->table('users')->where('id', $user->id)->update(['join_code' => $this->uniqueJoinCode()]);
-            $user->refresh();
-        }
+        $code = DB::transaction(function (): string {
+            $user = User::where('id', $this->access->user()->id)->lockForUpdate()->firstOrFail();
+            if (! $user->join_code) {
+                $user->forceFill(['join_code' => $this->uniqueJoinCode()])->save();
+            }
 
-        return response()->json($this->joinCodePayload($user->join_code));
+            return $user->join_code;
+        });
+
+        return response()->json($this->joinCodePayload($code));
     }
 
     public function refreshJoinCode(): JsonResponse
@@ -42,7 +47,10 @@ class EnrollmentController extends Controller
     private function uniqueJoinCode(): string
     {
         do {
-            $code = Str::upper(Str::random(8));
+            $code = '';
+            for ($index = 0; $index < 8; $index++) {
+                $code .= self::JOIN_CODE_ALPHABET[random_int(0, strlen(self::JOIN_CODE_ALPHABET) - 1)];
+            }
         } while (User::where('join_code', $code)->exists());
 
         return $code;
@@ -78,7 +86,7 @@ class EnrollmentController extends Controller
     public function joinClass(Request $request): JsonResponse
     {
         $this->access->requireRole('student');
-        $data = $request->validate(['code' => ['required', 'string', 'max:32']]);
+        $data = $request->validate(['code' => ['required', 'string', 'max:16']]);
         $student = $this->access->user();
         $teacher = User::where('join_code', Str::upper(trim($data['code'])))
             ->where('organization_id', $student->organization_id)
@@ -91,10 +99,14 @@ class EnrollmentController extends Controller
         if (! $teacher) {
             throw ValidationException::withMessages(['code' => 'Mã lớp không hợp lệ hoặc đã được thay đổi. Vui lòng kiểm tra lại.']);
         }
-        $joined = $this->access->table('teacher_students')->insertOrIgnore(['teacher_id' => $teacher->id, 'student_id' => $student->id]) > 0;
-        if ($joined) {
-            $this->access->audit('class_joined', 'user', $student->id, null, ['teacher_id' => $teacher->id]);
-        }
+        $joined = DB::transaction(function () use ($teacher, $student): bool {
+            $joined = $this->access->table('teacher_students')->insertOrIgnore(['teacher_id' => $teacher->id, 'student_id' => $student->id]) > 0;
+            if ($joined) {
+                $this->access->audit('class_joined', 'user', $student->id, null, ['teacher_id' => $teacher->id]);
+            }
+
+            return $joined;
+        });
 
         return response()->json([
             'message' => $joined ? 'Đã tham gia lớp của '.$teacher->name.'.' : 'Em đã tham gia lớp này rồi.',

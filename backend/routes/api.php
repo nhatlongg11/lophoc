@@ -78,7 +78,7 @@ Route::middleware('api.auth')->group(function () {
     Route::get('/class-code', [EnrollmentController::class, 'joinCode']);
     Route::post('/class-code/refresh', [EnrollmentController::class, 'refreshJoinCode']);
     Route::get('/class-memberships', [EnrollmentController::class, 'studentClasses']);
-    Route::post('/class-memberships', [EnrollmentController::class, 'joinClass']);
+    Route::post('/class-memberships', [EnrollmentController::class, 'joinClass'])->middleware('throttle:20,1');
     Route::get('/platform', [OrganizationController::class, 'platform']);
     Route::post('/platform/organizations', [OrganizationController::class, 'createOrganization']);
     Route::post('/platform/organizations/{id}/suspend', [OrganizationController::class, 'suspend']);

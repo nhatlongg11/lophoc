@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\LearningAccess;
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,57 +39,92 @@ class AccountController extends Controller
             'password' => ['required', 'string', 'confirmed', 'min:12', 'max:128'],
             'role' => ['required', 'string', Rule::in(['student', 'teacher', 'parent'])],
             'parent_pin' => ['required_if:role,parent', 'nullable', 'digits_between:6,12'],
-            'join_code' => ['exclude_unless:role,student', 'nullable', 'string', 'max:32'],
+            'join_code' => ['exclude_unless:role,student', 'nullable', 'string', 'max:16'],
             'organization_id' => ['prohibited'],
             'student_id' => ['prohibited'],
             'student_ids' => ['prohibited'],
         ]);
         $joinedClass = false;
-        $user = DB::transaction(function () use ($data, &$joinedClass): User {
-            $teacher = null;
-            if (! empty($data['join_code'])) {
-                $teacher = User::where('join_code', $data['join_code'])->where('role', 'teacher')->where('active', true)->where(function ($query): void {
-                    $query->whereNull('registration_status')->orWhere('registration_status', 'approved');
-                })->lockForUpdate()->first();
-                if (! $teacher) {
-                    throw ValidationException::withMessages(['join_code' => 'Mã lớp không hợp lệ hoặc đã được thay đổi. Vui lòng kiểm tra lại.']);
+        try {
+            $user = DB::transaction(function () use ($data, &$joinedClass): User {
+                $joinCodeTeacher = null;
+                if (($data['join_code'] ?? '') !== '') {
+                    $joinCodeTeacher = $this->validJoinCodeTeacher($data['join_code']);
+                    if (! $joinCodeTeacher) {
+                        throw ValidationException::withMessages(['join_code' => 'Mã lớp không hợp lệ hoặc đã được thay đổi. Vui lòng kiểm tra lại.']);
+                    }
                 }
-            }
-            $organization = DB::table('organizations')->where('id', $teacher?->organization_id ?? config('eduquest.registration_organization_id'))->lockForUpdate()->first();
-            abort_unless($organization && $organization->subscription_status === 'active', 422, 'Hệ thống hiện chưa nhận đăng ký. Vui lòng thử lại sau.');
-            if (User::whereRaw('LOWER(email) = ?', [$data['email']])->exists()) {
-                throw ValidationException::withMessages(['email' => 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc đặt lại mật khẩu.']);
-            }
-            $role = $data['role'] === 'parent' ? 'family' : $data['role'];
-            $immediate = $role === 'student';
-            if ($role !== 'family') {
-                $limit = $role === 'student' ? $organization->max_students : $organization->max_teachers;
-                abort_if(User::where('organization_id', $organization->id)->where('role', $role)->where('active', true)->count() >= $limit, 422, 'Hệ thống đã đạt giới hạn tài khoản cho vai trò này. Vui lòng liên hệ quản trị viên.');
-            }
-            $user = new User([
-                'organization_id' => $organization->id,
-                'name' => $data['name'],
-                'email' => $data['email'],
-                'password' => $data['password'],
-                'role' => $role,
-                'active' => $immediate,
-                'parent_pin_hash' => $role === 'family' ? Hash::make($data['parent_pin']) : null,
-            ]);
-            $user->forceFill(['registration_status' => $immediate ? null : 'pending'])->save();
-            if ($teacher) {
-                $joinedClass = true;
-                DB::table('teacher_students')->insertOrIgnore(['organization_id' => $organization->id, 'teacher_id' => $teacher->id, 'student_id' => $user->id]);
-            }
-            DB::table('audit_logs')->insert(['organization_id' => $organization->id, 'actor_id' => $user->id, 'action' => $joinedClass ? 'registration_joined_class' : ($immediate ? 'registration_created' : 'registration_requested'), 'entity_type' => 'user', 'entity_id' => $user->id, 'created_at' => now(), 'updated_at' => now()]);
+                $organization = DB::table('organizations')->where('id', $joinCodeTeacher?->organization_id ?? config('eduquest.registration_organization_id'))->lockForUpdate()->first();
+                abort_unless($organization && $organization->subscription_status === 'active', 422, 'Hệ thống hiện chưa nhận đăng ký. Vui lòng thử lại sau.');
+                $teacher = null;
+                if ($joinCodeTeacher) {
+                    $teacher = User::where('id', $joinCodeTeacher->id)
+                        ->where('organization_id', $organization->id)
+                        ->where('join_code', $data['join_code'])
+                        ->where('role', 'teacher')
+                        ->where('active', true)
+                        ->where(function ($query): void {
+                            $query->whereNull('registration_status')->orWhere('registration_status', 'approved');
+                        })
+                        ->lockForUpdate()
+                        ->first();
+                    if (! $teacher) {
+                        throw ValidationException::withMessages(['join_code' => 'Mã lớp không hợp lệ hoặc đã được thay đổi. Vui lòng kiểm tra lại.']);
+                    }
+                }
+                if (User::whereRaw('LOWER(email) = ?', [$data['email']])->exists()) {
+                    throw ValidationException::withMessages(['email' => 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc đặt lại mật khẩu.']);
+                }
+                $role = $data['role'] === 'parent' ? 'family' : $data['role'];
+                $immediate = $role === 'student';
+                if ($role !== 'family') {
+                    $limit = $role === 'student' ? $organization->max_students : $organization->max_teachers;
+                    abort_if(User::where('organization_id', $organization->id)->where('role', $role)->where('active', true)->count() >= $limit, 422, 'Hệ thống đã đạt giới hạn tài khoản cho vai trò này. Vui lòng liên hệ quản trị viên.');
+                }
+                $user = new User([
+                    'organization_id' => $organization->id,
+                    'name' => $data['name'],
+                    'email' => $data['email'],
+                    'password' => $data['password'],
+                    'role' => $role,
+                    'active' => $immediate,
+                    'parent_pin_hash' => $role === 'family' ? Hash::make($data['parent_pin']) : null,
+                ]);
+                $user->forceFill([
+                    'registration_status' => $immediate ? null : 'pending',
+                    'email_verified_at' => $immediate ? now() : null,
+                ])->save();
+                if ($teacher) {
+                    $joinedClass = true;
+                    DB::table('teacher_students')->insertOrIgnore(['organization_id' => $organization->id, 'teacher_id' => $teacher->id, 'student_id' => $user->id]);
+                }
+                DB::table('audit_logs')->insert(['organization_id' => $organization->id, 'actor_id' => $user->id, 'action' => $joinedClass ? 'registration_joined_class' : ($immediate ? 'registration_created' : 'registration_requested'), 'entity_type' => 'user', 'entity_id' => $user->id, 'created_at' => now(), 'updated_at' => now()]);
 
-            return $user;
-        });
+                return $user;
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            if (! str_contains($exception->getMessage(), 'users.email') && ! str_contains($exception->getMessage(), 'users_email_unique')) {
+                throw $exception;
+            }
+            throw ValidationException::withMessages(['email' => 'Email này đã được đăng ký. Vui lòng đăng nhập hoặc đặt lại mật khẩu.']);
+        }
 
         $message = $user->registration_status === null
             ? ($joinedClass ? 'Tài khoản đã được tạo và tự động thêm vào lớp. Bạn có thể đăng nhập ngay.' : 'Tài khoản đã được tạo. Bạn có thể đăng nhập ngay.')
             : 'Đã gửi yêu cầu đăng ký. Vui lòng chờ quản trị viên duyệt trước khi đăng nhập.';
 
         return response()->json(['message' => $message, 'email' => $user->email, 'status' => $user->registration_status ?? 'active', 'joined_class' => $joinedClass], 201);
+    }
+
+    private function validJoinCodeTeacher(string $joinCode): ?User
+    {
+        return User::where('join_code', $joinCode)
+            ->where('role', 'teacher')
+            ->where('active', true)
+            ->where(function ($query): void {
+                $query->whereNull('registration_status')->orWhere('registration_status', 'approved');
+            })
+            ->first();
     }
 
     public function registrations(): JsonResponse
@@ -113,7 +149,7 @@ class AccountController extends Controller
                     $this->access->enforceLimit($user->role === 'teacher' ? 'teachers' : 'students');
                 }
             }
-            $user->forceFill(['registration_status' => $data['decision'], 'active' => $approved, 'registration_reviewed_at' => now(), 'registration_reviewed_by' => $this->access->user()->id])->save();
+            $user->forceFill(['registration_status' => $data['decision'], 'active' => $approved, 'email_verified_at' => $approved ? now() : $user->email_verified_at, 'registration_reviewed_at' => now(), 'registration_reviewed_by' => $this->access->user()->id])->save();
             $this->access->table('api_tokens')->where('user_id', $user->id)->delete();
             $this->access->audit('registration_'.$data['decision'], 'user', $user->id, ['registration_status' => 'pending'], ['registration_status' => $data['decision']]);
         });

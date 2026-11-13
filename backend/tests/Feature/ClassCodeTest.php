@@ -81,13 +81,17 @@ class ClassCodeTest extends TestCase
         $other = DB::table('organizations')->insertGetId(['name' => 'Other', 'slug' => 'other-membership']);
         $foreign = User::factory()->create(['role' => 'teacher', 'organization_id' => $other, 'join_code' => 'FOREIGN1']);
         $inactive = User::factory()->create(['role' => 'teacher', 'active' => false, 'join_code' => 'INACTIVE']);
+        $pending = User::factory()->create(['role' => 'teacher', 'active' => true, 'join_code' => 'PENDING1']);
+        $pending->forceFill(['registration_status' => 'pending'])->save();
         $student = User::factory()->create(['role' => 'student']);
         $this->eduAs($student);
         $this->postJson('/api/class-memberships', ['code' => 'NOPE'])->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->postJson('/api/class-memberships', ['code' => 'FOREIGN1'])->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->postJson('/api/class-memberships', ['code' => 'INACTIVE'])->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->postJson('/api/class-memberships', ['code' => 'PENDING1'])->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->assertDatabaseMissing('teacher_students', ['teacher_id' => $foreign->id, 'student_id' => $student->id]);
         $this->assertDatabaseMissing('teacher_students', ['teacher_id' => $inactive->id, 'student_id' => $student->id]);
+        $this->assertDatabaseMissing('teacher_students', ['teacher_id' => $pending->id, 'student_id' => $student->id]);
     }
 
     public function test_only_students_can_list_or_join_classes(): void

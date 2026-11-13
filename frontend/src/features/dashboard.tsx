@@ -9,7 +9,7 @@ type DashboardData = { students: number; pending_assignments: number; assignment
 
 function StudentClasses({ onJoined }: { onJoined: () => void }) {
   const classes = useResource<{ id: number; name: string }[]>('/class-memberships')
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(() => (new URLSearchParams(window.location.search).get('join') || '').toUpperCase())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -21,6 +21,9 @@ function StudentClasses({ onJoined }: { onJoined: () => void }) {
       const result = await api<{ message: string }>('/class-memberships', { method: 'POST', body: { code: code.trim().toUpperCase() } })
       setMessage(result.message)
       setCode('')
+      const url = new URL(window.location.href)
+      url.searchParams.delete('join')
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash)
       classes.reload()
       onJoined()
     } catch (err) {
@@ -30,9 +33,9 @@ function StudentClasses({ onJoined }: { onJoined: () => void }) {
     }
   }
   return <Panel title="Lớp của em" action={<Icon name="students"/>}>
-    <p>Nhập mã lớp giáo viên đã chia sẻ để tham gia lớp. Sau khi tham gia, bài tập và lịch học của lớp sẽ xuất hiện trong tài khoản của em.</p>
+    <p>Nhập mã lớp giáo viên đã chia sẻ để tham gia lớp. Sau khi tham gia, giáo viên sẽ thấy em trong danh sách lớp và có thể giao bài, xếp lịch cho em.</p>
     <form className="stack-form" onSubmit={join}>
-      <label>Mã lớp<input value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="Ví dụ: AB12CD34" autoComplete="off" maxLength={32} required/></label>
+      <label>Mã lớp<input value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="Ví dụ: AB12CD34" autoComplete="off" maxLength={16} required/></label>
       <Button disabled={busy || !code.trim()}>{busy ? 'Đang tham gia…' : 'Tham gia lớp'}</Button>
     </form>
     <ErrorBox message={classes.error || error}/>

@@ -193,7 +193,7 @@ export function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
                 onChange={(e) => setClassCode(e.target.value.toUpperCase())}
                 placeholder="Ví dụ: AB12CD34"
                 autoComplete="off"
-                maxLength={32}
+                maxLength={16}
               />
             </label>
           )}

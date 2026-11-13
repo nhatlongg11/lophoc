@@ -5,7 +5,7 @@ import { Button, Empty, ErrorBox, PageHead, Panel, Skeleton, useResource, type N
 
 function ClassJoinCode({ notify }: { notify: Notify }) {
   const { data, error, loading, reload } = useResource<{ code: string; url: string }>('/class-code')
-  const joinUrl = data ? `${window.location.origin}/app/?join=${data.code}` : ''
+  const joinUrl = data ? `${window.location.origin}${import.meta.env.BASE_URL}?join=${data.code}` : ''
   const [busy, setBusy] = useState(false)
   async function copy(value: string) {
     try {
@@ -45,7 +45,8 @@ function ClassJoinCode({ notify }: { notify: Notify }) {
 }
 
 export function StudentDirectory({ user, notify }: { user: User; notify: Notify }) {
-  const { data, error, loading, reload } = useResource<(User & { phone?: string; active: boolean })[]>('/users?role=student')
+  const [linkedOnly, setLinkedOnly] = useState(false)
+  const { data, error, loading, reload } = useResource<(User & { phone?: string; active: boolean })[]>(user.role === 'teacher' && linkedOnly ? '/users?role=student&linked=1' : '/users?role=student')
   const [search, setSearch] = useState('')
   const students = data?.filter(student => `${student.name} ${student.email}`.toLocaleLowerCase('vi').includes(search.trim().toLocaleLowerCase('vi')))
   return <>
@@ -53,6 +54,7 @@ export function StudentDirectory({ user, notify }: { user: User; notify: Notify 
     {user.role === 'admin' && <RosterActions user={user} notify={notify} onChanged={reload}/>}
     {user.role === 'teacher' && <ClassJoinCode notify={notify}/>}
     <label className="toolbar">Tìm học sinh<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Tên hoặc email"/></label>
+    {user.role === 'teacher' && <label className="check-row"><input type="checkbox" checked={linkedOnly} onChange={event => setLinkedOnly(event.target.checked)}/> Chỉ hiện học sinh trong lớp của tôi</label>}
     <ErrorBox message={error}/>
     {loading ? <Skeleton/> : <div className="table-wrap"><table><thead><tr><th>Học sinh</th><th>Email</th><th>Điện thoại</th><th>Trạng thái</th></tr></thead><tbody>{students?.map(student => <tr key={student.id}><td><strong>{student.name}</strong></td><td>{student.email}</td><td>{student.phone || '—'}</td><td>{student.active ? 'Đang hoạt động' : 'Đã khóa'}</td></tr>)}</tbody></table>{!students?.length && <Empty>Chưa có học sinh phù hợp.</Empty>}</div>}
   </>
